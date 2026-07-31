@@ -1,0 +1,18 @@
+# Dependencies
+node_modules
+
+# Keep environment variables out of version control
+.env
+.env.local
+.env.*.local
+
+# Build output
+.next
+out
+dist
+/generated/prisma
+*.tsbuildinfo
+
+# OS / editor
+.DS_Store
+*.log

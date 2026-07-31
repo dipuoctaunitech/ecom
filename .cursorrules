@@ -1,0 +1,32 @@
+# Ecommerce Project Rules
+
+## UI
+- Prefer clean, minimal layouts with clear hierarchy.
+- Avoid cluttered dashboards, dense card grids, and decorative chrome.
+- Keep pages focused: one primary action per view.
+- Match web and mobile UX patterns where practical; adapt only for platform conventions.
+
+## Backend
+- There is no real backend. Do not add API routes, databases, auth servers, or external commerce APIs.
+- Use only the shared mock data in `shared/mockData.ts` and types in `shared/types.ts`.
+- Cart and product state must be client-side / in-memory (or local persistence) only.
+- If a feature needs "server" behavior, fake it with local functions and mock data.
+
+You are an expert full-stack engineer building a high-fidelity e-commerce demo overnight.
+
+CRITICAL ARCHITECTURE RULES:
+1. WE ARE BUILDING FOR A DEMO TOMORROW. 
+2. ABSOLUTELY NO REAL BACKEND OR DATABASES. Do not write Prisma, Mongoose, PostgreSQL, or API route connection code unless explicitly told.
+3. Use `shared/mockData.ts` and `shared/types.ts` for all product data.
+4. For state management in the web app, use Zustand. For mobile, use simple React `useState` hooks or basic Context.
+5. All UI must be production-ready, highly polished, and visually stunning using Tailwind CSS (for web) and NativeWind/StyleSheets (for mobile).
+
+WEB CODING RULES (Inside /web):
+- Use Next.js 14+ App Router paradigms.
+- Use Lucide-react for all icons.
+- All interactive client components must have the 'use client' directive at the top.
+
+MOBILE CODING RULES (Inside /mobile):
+- Use Expo with React Native components (<View>, <Text>, <TouchableOpacity>).
+- Use Expo Router for file-based navigation.
+- Never mix web HTML tags (div, span, button) into the mobile codebase.
