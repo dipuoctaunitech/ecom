@@ -6,12 +6,28 @@ import {
   getAdminAnalytics,
   getAdminCategories,
   getAdminCustomers,
+  getAdminDeliveryBoys,
   getAdminDiscountCodes,
   getAdminOrders,
   getAdminProducts,
+  getAdminSellers,
+  getAdminStoreStaff,
   getAdminSupportTickets,
   getStoreSettings,
 } from "@/app/actions/admin"
+import { getStoreCategories } from "@/app/actions/store-categories"
+import {
+  getStoreCollectionCategoryOptions,
+  getStoreCollections,
+} from "@/app/actions/store-collections"
+import {
+  getManagedNewArrivals,
+  getNewArrivalProductOptions,
+} from "@/app/actions/store-new-arrivals"
+import { getStoreOfferGroups } from "@/app/actions/store-offer-groups"
+import { getManagedServices } from "@/app/actions/store-services"
+import { getTimeFrameBoard } from "@/app/actions/store-timeframes"
+import { getStoreRosterBoard } from "@/app/actions/store-roster"
 import AdminDashboard from "@/components/admin/AdminDashboard"
 
 export const dynamic = "force-dynamic"
@@ -33,29 +49,43 @@ export default async function AdminDashboardPage() {
   }
 
   const [
-    users,
+    sellerSetup,
+    deliveryBoys,
+    staff,
     analytics,
     initialOrders,
     products,
     categories,
+    storeCategories,
+    storeCollections,
+    collectionCategoryOptions,
+    managedNewArrivals,
+    newArrivalOptions,
+    offerGroups,
+    managedServices,
+    timeFrameBoard,
+    rosterBoard,
     customers,
     tickets,
     discountCodes,
     storeSettings,
   ] = await Promise.all([
-    prisma.user.findMany({
-      select: {
-        id: true,
-        name: true,
-        email: true,
-        role: true,
-      },
-      orderBy: [{ role: "asc" }, { email: "asc" }],
-    }),
+    getAdminSellers(),
+    getAdminDeliveryBoys(),
+    getAdminStoreStaff(),
     getAdminAnalytics(),
     getAdminOrders(1, 10),
     getAdminProducts(),
     getAdminCategories(),
+    getStoreCategories(),
+    getStoreCollections(),
+    getStoreCollectionCategoryOptions(),
+    getManagedNewArrivals(),
+    getNewArrivalProductOptions(),
+    getStoreOfferGroups(),
+    getManagedServices(),
+    getTimeFrameBoard("GROOMING"),
+    getStoreRosterBoard(undefined, "GROOMING"),
     getAdminCustomers(),
     getAdminSupportTickets(),
     getAdminDiscountCodes(),
@@ -64,11 +94,24 @@ export default async function AdminDashboardPage() {
 
   return (
     <AdminDashboard
-      users={users}
+      sellers={sellerSetup.sellers}
+      buyers={sellerSetup.buyers}
+      deliveryBoys={deliveryBoys}
+      staff={staff}
       analytics={analytics}
       initialOrders={initialOrders}
       products={products}
       categories={categories}
+      storeCategories={storeCategories}
+      storeCollections={storeCollections}
+      collectionCategoryOptions={collectionCategoryOptions}
+      newArrivalItems={managedNewArrivals.items}
+      newArrivalOptions={newArrivalOptions}
+      newArrivalLimit={managedNewArrivals.limit}
+      offerGroups={offerGroups}
+      managedServices={managedServices}
+      timeFrameBoard={timeFrameBoard}
+      rosterBoard={rosterBoard}
       customers={customers}
       tickets={tickets}
       discountCodes={discountCodes}

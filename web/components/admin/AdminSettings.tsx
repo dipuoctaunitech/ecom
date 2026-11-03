@@ -1,26 +1,15 @@
 'use client'
 
 import { useState, useTransition } from "react"
-import { Role } from "@prisma/client"
 import {
   updateStoreSettings,
   type StoreSettingsData,
 } from "@/app/actions/admin"
-import AdminUserTable from "@/components/AdminUserTable"
-
-type User = {
-  id: string
-  name: string | null
-  email: string | null
-  role: Role
-}
 
 export default function AdminSettings({
   initialSettings,
-  users,
 }: {
   initialSettings: StoreSettingsData
-  users: User[]
 }) {
   const [settings, setSettings] = useState(initialSettings)
   const [isPending, startTransition] = useTransition()
@@ -50,8 +39,7 @@ export default function AdminSettings({
           System Settings & Security
         </h2>
         <p className="mt-2 text-sm text-ink-muted">
-          Payment gateways, shipping, tax, inventory alerts, and role-based
-          access control.
+          Payment gateways, shipping, tax, and inventory alerts.
         </p>
       </div>
 
@@ -115,7 +103,7 @@ export default function AdminSettings({
           <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-3">
             <div>
               <label className="block text-xs font-medium uppercase tracking-[0.12em] text-ink-muted">
-                Default Shipping Rate ($)
+                Default Shipping Rate (₹)
               </label>
               <input
                 type="number"
@@ -133,7 +121,7 @@ export default function AdminSettings({
             </div>
             <div>
               <label className="block text-xs font-medium uppercase tracking-[0.12em] text-ink-muted">
-                Free Shipping Threshold ($)
+                Free Shipping Threshold (₹)
               </label>
               <input
                 type="number"
@@ -223,19 +211,6 @@ export default function AdminSettings({
           {isPending ? "Saving…" : "Save Settings"}
         </button>
       </form>
-
-      <section>
-        <div className="mb-6">
-          <h3 className="font-display text-lg font-medium text-ink">
-            Role-Based Access Control
-          </h3>
-          <p className="mt-2 text-sm text-ink-muted">
-            Add seller accounts or assign buyer and seller roles. Admin accounts
-            are protected.
-          </p>
-        </div>
-        <AdminUserTable users={users} />
-      </section>
     </div>
   )
 }

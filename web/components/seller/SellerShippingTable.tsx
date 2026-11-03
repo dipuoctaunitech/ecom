@@ -5,11 +5,14 @@ import { ChevronLeft, ChevronRight, FileText } from "lucide-react"
 import { OrderStatus } from "@prisma/client"
 import {
   getSellerOrders,
+  markSellerPaymentReceived,
   updateSellerOrderStatus,
   type PaginatedSellerOrders,
   type SellerOrderListItem,
 } from "@/app/actions/seller"
 import SellerInvoiceModal from "@/components/seller/SellerInvoiceModal"
+import { EnlargeableImage } from "@/components/EnlargeableImage"
+import { formatINR } from "@/lib/money"
 
 const STATUS_OPTIONS: OrderStatus[] = [
   "PENDING",
@@ -43,8 +46,10 @@ function truncateId(id: string) {
 
 export default function SellerShippingTable({
   initialData,
+  qrCodeUrl,
 }: {
   initialData: PaginatedSellerOrders
+  qrCodeUrl: string | null
 }) {
   const [data, setData] = useState(initialData)
   const [invoiceOrder, setInvoiceOrder] = useState<SellerOrderListItem | null>(
@@ -84,6 +89,32 @@ export default function SellerShippingTable({
     })
   }
 
+  const handleMarkPaymentReceived = (orderId: string) => {
+    setError("")
+    startTransition(async () => {
+      try {
+        await markSellerPaymentReceived(orderId)
+        const receivedAt = new Date().toISOString()
+        setData((current) => ({
+          ...current,
+          orders: current.orders.map((order) =>
+            order.id === orderId
+              ? {
+                  ...order,
+                  paymentReceived: true,
+                  paymentReceivedAt: receivedAt,
+                }
+              : order
+          ),
+        }))
+      } catch (err) {
+        setError(
+          err instanceof Error ? err.message : "Failed to mark payment received"
+        )
+      }
+    })
+  }
+
   const statusCounts = STATUS_OPTIONS.reduce(
     (acc, status) => {
       acc[status] = data.orders.filter((o) => o.status === status).length
@@ -99,8 +130,8 @@ export default function SellerShippingTable({
           Track Shipping
         </h2>
         <p className="mt-2 text-sm text-ink-muted">
-          Follow orders that include your products. Update fulfillment status
-          and print shipping invoices.
+          Follow orders that include your products. Confirm payment receipts,
+          update fulfillment status, and print shipping invoices.
         </p>
       </div>
 
@@ -144,6 +175,9 @@ export default function SellerShippingTable({
                 Your Total
               </th>
               <th className="px-5 py-3 text-left text-xs font-medium uppercase tracking-[0.12em] text-ink-muted">
+                Payment
+              </th>
+              <th className="px-5 py-3 text-left text-xs font-medium uppercase tracking-[0.12em] text-ink-muted">
                 Status
               </th>
               <th className="px-5 py-3 text-left text-xs font-medium uppercase tracking-[0.12em] text-ink-muted">
@@ -155,7 +189,7 @@ export default function SellerShippingTable({
             {data.orders.length === 0 ? (
               <tr>
                 <td
-                  colSpan={7}
+                  colSpan={8}
                   className="px-5 py-16 text-center text-sm text-ink-muted"
                 >
                   No orders yet. Orders for your products will appear here after
@@ -200,7 +234,43 @@ export default function SellerShippingTable({
                     </ul>
                   </td>
                   <td className="px-5 py-4 text-sm font-medium tabular-nums text-ink">
-                    ${order.sellerTotal.toFixed(2)}
+                    {formatINR(order.sellerTotal)}
+                  </td>
+                  <td className="px-5 py-4">
+                    <div className="flex items-start gap-3">
+                      {qrCodeUrl ? (
+                        <EnlargeableImage
+                          src={qrCodeUrl}
+                          alt="Your payment QR"
+                          wrapClassName="h-12 w-12 shrink-0 p-0.5"
+                          className="h-full w-full object-contain"
+                        />
+                      ) : null}
+                      {order.receiptUrl ? (
+                        <EnlargeableImage
+                          src={order.receiptUrl}
+                          alt="Payment receipt"
+                          wrapClassName="h-12 w-12 shrink-0"
+                          className="h-full w-full object-contain"
+                        />
+                      ) : (
+                        <span className="text-xs text-ink-muted">No receipt</span>
+                      )}
+                      {order.paymentReceived ? (
+                        <span className="inline-flex items-center bg-emerald-50 px-2.5 py-1 text-xs font-medium uppercase tracking-wide text-emerald-800 ring-1 ring-emerald-200">
+                          Received
+                        </span>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => handleMarkPaymentReceived(order.id)}
+                          disabled={isPending}
+                          className="border border-ink bg-ink px-3 py-1.5 text-xs font-medium uppercase tracking-wide text-white transition-colors hover:bg-neutral-800 disabled:opacity-50"
+                        >
+                          Mark received
+                        </button>
+                      )}
+                    </div>
                   </td>
                   <td className="px-5 py-4">
                     {order.canUpdateStatus ? (
@@ -250,6 +320,7 @@ export default function SellerShippingTable({
       {invoiceOrder && (
         <SellerInvoiceModal
           order={invoiceOrder}
+          qrCodeUrl={qrCodeUrl}
           onClose={() => setInvoiceOrder(null)}
         />
       )}

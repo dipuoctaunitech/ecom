@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { uploadFile } from "@/lib/upload-client";
 
 export default function ImageUpload() {
   const [uploading, setUploading] = useState(false);
@@ -12,30 +13,8 @@ export default function ImageUpload() {
 
     setUploading(true);
     try {
-      // 1. Request pre-signed URL from our API
-      const response = await fetch("/api/upload", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          filename: file.name,
-          contentType: file.type,
-          fileSize: file.size,
-        }),
-      });
-
-      if (!response.ok) throw new Error("Upload rejected (Are you a Seller?)");
-      const { url, publicUrl } = await response.json();
-
-      // 2. Upload directly to MinIO
-      const uploadResponse = await fetch(url, {
-        method: "PUT",
-        headers: { "Content-Type": file.type },
-        body: file,
-      });
-
-      if (uploadResponse.ok) {
-        setImageUrl(publicUrl); // You would normally pass this to a form state
-      }
+      const publicUrl = await uploadFile({ file, purpose: "product" });
+      setImageUrl(publicUrl);
     } catch (error) {
       console.error(error);
       alert(error instanceof Error ? error.message : "Upload failed");
@@ -58,7 +37,7 @@ export default function ImageUpload() {
       </label>
 
       {uploading && (
-        <p className="text-sm text-ink-muted">Uploading directly to MinIO...</p>
+        <p className="text-sm text-ink-muted">Uploading…</p>
       )}
 
       {imageUrl && (

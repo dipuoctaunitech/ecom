@@ -3,6 +3,14 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { createProduct } from "@/app/actions/product";
+import { uploadFile } from "@/lib/upload-client";
+import {
+  PRODUCT_ANIMALS,
+  PRODUCT_MEDIA_MAX,
+  PRODUCT_TAG_MAX,
+  PRODUCT_TAGS_MAX,
+} from "@/lib/product-meta";
+import { X } from "lucide-react";
 
 function isVideoUrl(url: string): boolean {
   return /\.(mp4|webm|ogg|mov)(\?|$)/i.test(url);
@@ -12,12 +20,46 @@ export default function SellerProductForm() {
   const router = useRouter();
   const [isUploading, setIsUploading] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [imageUrls, setImageUrls] = useState<string[]>([]);
+  const [mediaUrls, setMediaUrls] = useState<string[]>([]);
+  const [tags, setTags] = useState<string[]>([]);
+  const [tagDraft, setTagDraft] = useState("");
+  const [selectedAnimals, setSelectedAnimals] = useState<string[]>([]);
   const [error, setError] = useState("");
 
-  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const slotsLeft = PRODUCT_MEDIA_MAX - mediaUrls.length;
+
+  const addTagsFromDraft = (raw: string) => {
+    const parts = raw
+      .split(/[,]+/)
+      .map((part) => part.trim().toLowerCase().replace(/\s+/g, " "))
+      .filter(Boolean);
+
+    if (parts.length === 0) return;
+
+    setTags((current) => {
+      const next = [...current];
+      for (const part of parts) {
+        if (part.length > PRODUCT_TAG_MAX) continue;
+        if (next.includes(part)) continue;
+        if (next.length >= PRODUCT_TAGS_MAX) break;
+        next.push(part);
+      }
+      return next;
+    });
+    setTagDraft("");
+  };
+
+  const handleMediaUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files || []);
+    e.target.value = "";
     if (files.length === 0) return;
+
+    if (files.length > slotsLeft) {
+      setError(
+        `You can upload up to ${PRODUCT_MEDIA_MAX} photos or videos total.`
+      );
+      return;
+    }
 
     setIsUploading(true);
     setError("");
@@ -26,30 +68,13 @@ export default function SellerProductForm() {
       const uploadedUrls: string[] = [];
 
       for (const file of files) {
-        const res = await fetch("/api/upload", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            filename: file.name,
-            contentType: file.type,
-            fileSize: file.size,
-          }),
-        });
-
-        if (!res.ok) throw new Error("Failed to get upload URL");
-        const { url, publicUrl } = await res.json();
-
-        const uploadRes = await fetch(url, {
-          method: "PUT",
-          headers: { "Content-Type": file.type },
-          body: file,
-        });
-
-        if (!uploadRes.ok) throw new Error("Failed to upload file to storage");
+        const publicUrl = await uploadFile({ file, purpose: "product" });
         uploadedUrls.push(publicUrl);
       }
 
-      setImageUrls((prev) => [...prev, ...uploadedUrls]);
+      setMediaUrls((prev) =>
+        [...prev, ...uploadedUrls].slice(0, PRODUCT_MEDIA_MAX)
+      );
     } catch (err) {
       setError(err instanceof Error ? err.message : "Upload failed");
     } finally {
@@ -66,9 +91,13 @@ export default function SellerProductForm() {
     const payload = {
       title: formData.get("title") as string,
       description: formData.get("description") as string,
+      brand: formData.get("brand") as string,
+      animals: selectedAnimals,
+      tags,
       price: Number(formData.get("price")),
       stock: Number(formData.get("stock")),
-      images: imageUrls,
+      images: mediaUrls,
+      categoryIds: [],
     };
 
     try {
@@ -77,8 +106,12 @@ export default function SellerProductForm() {
         router.push("/");
         router.refresh();
       }
-    } catch {
-      setError("Failed to create product. Make sure you are logged in as a SELLER.");
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Failed to create product. Make sure you are logged in as a SELLER."
+      );
     } finally {
       setIsSubmitting(false);
     }
@@ -113,7 +146,85 @@ export default function SellerProductForm() {
 
         <div className="grid grid-cols-2 gap-4">
           <div>
-            <label className="mb-1 block text-sm font-medium">Price (USD)</label>
+            <label className="mb-1 block text-sm font-medium">Brand</label>
+            <input
+              required
+              name="brand"
+              type="text"
+              className="w-full rounded-md border p-2"
+            />
+          </div>
+          <div>
+            <label className="mb-1 block text-sm font-medium">Animals</label>
+            <div className="flex flex-wrap gap-2">
+              {PRODUCT_ANIMALS.map((animal) => {
+                const selected = selectedAnimals.includes(animal);
+                return (
+                  <button
+                    key={animal}
+                    type="button"
+                    onClick={() =>
+                      setSelectedAnimals((current) =>
+                        selected
+                          ? current.filter((item) => item !== animal)
+                          : [...current, animal]
+                      )
+                    }
+                    className={`rounded px-2 py-1 text-xs ${
+                      selected
+                        ? "bg-blue-600 text-white"
+                        : "bg-gray-100 text-gray-700"
+                    }`}
+                  >
+                    {animal}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+
+        <div>
+          <label className="mb-1 block text-sm font-medium">Tags</label>
+          <div className="flex flex-wrap gap-2 rounded-md border p-2">
+            {tags.map((tag) => (
+              <span
+                key={tag}
+                className="inline-flex items-center gap-1 rounded bg-gray-900 px-2 py-1 text-xs text-white"
+              >
+                {tag}
+                <button
+                  type="button"
+                  onClick={() =>
+                    setTags((current) => current.filter((t) => t !== tag))
+                  }
+                >
+                  <X className="h-3 w-3" />
+                </button>
+              </span>
+            ))}
+            <input
+              type="text"
+              value={tagDraft}
+              onChange={(e) => setTagDraft(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === ",") {
+                  e.preventDefault();
+                  addTagsFromDraft(tagDraft);
+                }
+              }}
+              onBlur={() => {
+                if (tagDraft.trim()) addTagsFromDraft(tagDraft);
+              }}
+              placeholder="Add keywords, press Enter"
+              className="min-w-[140px] flex-1 text-sm focus:outline-none"
+            />
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <label className="mb-1 block text-sm font-medium">Price (INR)</label>
             <input
               required
               name="price"
@@ -124,7 +235,7 @@ export default function SellerProductForm() {
             />
           </div>
           <div>
-            <label className="mb-1 block text-sm font-medium">Initial Stock</label>
+            <label className="mb-1 block text-sm font-medium">Quantity</label>
             <input
               required
               name="stock"
@@ -136,28 +247,30 @@ export default function SellerProductForm() {
         </div>
 
         <div className="border-t pt-4">
-          <label className="mb-2 block text-sm font-medium">Product Media</label>
+          <label className="mb-2 block text-sm font-medium">
+            Photos & Videos ({mediaUrls.length}/{PRODUCT_MEDIA_MAX})
+          </label>
           <input
             type="file"
             accept="image/*,video/mp4,video/webm,video/ogg,video/quicktime"
             multiple
-            onChange={handleImageUpload}
-            disabled={isUploading || isSubmitting}
+            onChange={handleMediaUpload}
+            disabled={isUploading || isSubmitting || slotsLeft <= 0}
             className="w-full text-sm text-gray-500 file:mr-4 file:rounded-md file:border-0 file:bg-blue-50 file:px-4 file:py-2 file:text-sm file:font-semibold file:text-blue-700 hover:file:bg-blue-100"
           />
           <p className="mt-2 text-sm text-gray-500">
-            Upload images or videos for this product.
+            Upload up to {PRODUCT_MEDIA_MAX} images or videos.
           </p>
           {isUploading && (
-            <p className="mt-2 text-sm text-blue-600">Uploading to MinIO...</p>
+            <p className="mt-2 text-sm text-blue-600">Uploading…</p>
           )}
 
-          {imageUrls.length > 0 && (
+          {mediaUrls.length > 0 && (
             <div className="mt-4 flex gap-4 overflow-x-auto py-2">
-              {imageUrls.map((url, i) => (
+              {mediaUrls.map((url, i) => (
                 <div
-                  key={i}
-                  className="flex h-24 w-24 shrink-0 items-center justify-center overflow-hidden rounded-md border"
+                  key={`${url}-${i}`}
+                  className="relative flex h-24 w-24 shrink-0 items-center justify-center overflow-hidden rounded-md border"
                 >
                   {isVideoUrl(url) ? (
                     <video
@@ -170,11 +283,20 @@ export default function SellerProductForm() {
                   ) : (
                     // eslint-disable-next-line @next/next/no-img-element
                     <img
-                  src={url}
-                  alt="Preview"
+                      src={url}
+                      alt="Preview"
                       className="h-full w-full object-cover"
-                />
+                    />
                   )}
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setMediaUrls((prev) => prev.filter((_, idx) => idx !== i))
+                    }
+                    className="absolute right-1 top-1 rounded bg-black/70 p-1 text-white"
+                  >
+                    <X className="h-3 w-3" />
+                  </button>
                 </div>
               ))}
             </div>
@@ -183,10 +305,16 @@ export default function SellerProductForm() {
 
         <button
           type="submit"
-          disabled={isUploading || isSubmitting || imageUrls.length === 0}
+          disabled={
+            isUploading ||
+            isSubmitting ||
+            mediaUrls.length === 0 ||
+            tags.length === 0 ||
+            selectedAnimals.length === 0
+          }
           className="mt-6 w-full rounded-md bg-blue-600 py-3 font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
         >
-          {isSubmitting ? "Creating Product..." : "List Product"}
+          {isSubmitting ? "Saving Product..." : "Save Product"}
         </button>
       </div>
     </form>

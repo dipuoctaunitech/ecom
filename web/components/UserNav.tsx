@@ -75,6 +75,24 @@ export default function UserNav({ overlay = false }: { overlay?: boolean }) {
       return;
     }
 
+    const roleResult = await fetch("/api/auth/session", { cache: "no-store" })
+      .then((response) => response.json())
+      .catch(() => null)
+    const roleUser = roleResult?.user as
+      | { role?: string; isManager?: boolean }
+      | undefined
+    if (roleUser?.role === "DELIVERY") {
+      router.push("/delivery")
+    } else if (roleUser?.isManager) {
+      router.push("/manager")
+    }
+    router.refresh();
+  }
+
+  async function handleSignOut() {
+    setOpen(false);
+    await signOut({ redirect: false, callbackUrl: "/" });
+    router.push("/");
     router.refresh();
   }
 
@@ -88,7 +106,17 @@ export default function UserNav({ overlay = false }: { overlay?: boolean }) {
 
   if (!session) {
     return (
-      <div className="relative">
+      <div className="relative flex items-center gap-2">
+        <Link
+          href="/signup"
+          className={
+            overlay
+              ? "hidden h-11 items-center rounded-full border-2 border-white/70 bg-white/15 px-4 text-sm font-semibold text-white shadow-md backdrop-blur-md transition-colors hover:bg-white/25 [text-shadow:0_1px_8px_rgba(0,0,0,0.7)] sm:inline-flex"
+              : "hidden h-11 items-center rounded-full bg-highlight px-4 text-sm font-semibold text-white transition-colors hover:bg-highlight-dark sm:inline-flex"
+          }
+        >
+          Sign up
+        </Link>
         <button
           type="button"
           onClick={() => setOpen((value) => !value)}
@@ -114,7 +142,7 @@ export default function UserNav({ overlay = false }: { overlay?: boolean }) {
               className="absolute right-0 top-full z-40 mt-2 w-72 space-y-3 rounded-xl border border-line bg-surface-elevated p-4 shadow-2xl"
             >
               <p className="font-display text-sm font-medium text-ink">
-                Sign in to FORMA
+                Sign in to namma pets Club
               </p>
               <input
                 type="text"
@@ -142,6 +170,16 @@ export default function UserNav({ overlay = false }: { overlay?: boolean }) {
               {error ? (
                 <p className="text-xs text-red-400">{error}</p>
               ) : null}
+              <p className="text-center text-xs text-ink-muted">
+                New here?{" "}
+                <Link
+                  href="/signup"
+                  className="font-semibold text-highlight hover:text-highlight-dark"
+                  onClick={() => setOpen(false)}
+                >
+                  Sign up with your pet
+                </Link>
+              </p>
             </form>
           </>
         )}
@@ -188,14 +226,66 @@ export default function UserNav({ overlay = false }: { overlay?: boolean }) {
             </div>
 
             <Link
-              href="/orders"
+              href="/account"
+              className="block rounded-lg px-3 py-2 text-sm text-ink-muted transition-colors hover:bg-surface"
+              onClick={() => setOpen(false)}
+            >
+              My Account
+            </Link>
+
+            <Link
+              href="/account?tab=orders"
               className="block rounded-lg px-3 py-2 text-sm text-ink-muted transition-colors hover:bg-surface"
               onClick={() => setOpen(false)}
             >
               My Orders
             </Link>
 
-            {session.user?.role === "SELLER" && (
+            {(session.user?.role === "ADMIN" ||
+              session.user?.role === "SELLER") && (
+              <Link
+                href="/store"
+                className="block rounded-lg px-3 py-2 text-sm text-ink-muted transition-colors hover:bg-surface"
+                onClick={() => setOpen(false)}
+              >
+                Store Dashboard
+              </Link>
+            )}
+
+            {session.user?.isGroomer && (
+              <Link
+                href="/groomer"
+                className="block rounded-lg px-3 py-2 text-sm text-ink-muted transition-colors hover:bg-surface"
+                onClick={() => setOpen(false)}
+              >
+                Groomer Schedule
+              </Link>
+            )}
+
+            {session.user?.isDoctor && (
+              <Link
+                href="/doctor"
+                className="block rounded-lg px-3 py-2 text-sm text-ink-muted transition-colors hover:bg-surface"
+                onClick={() => setOpen(false)}
+              >
+                Clinic Schedule
+              </Link>
+            )}
+
+            {session.user?.isManager && (
+              <Link
+                href="/manager"
+                className="block rounded-lg px-3 py-2 text-sm text-ink-muted transition-colors hover:bg-surface"
+                onClick={() => setOpen(false)}
+              >
+                Manager Dashboard
+              </Link>
+            )}
+
+            {session.user?.role === "SELLER" &&
+              !session.user?.isGroomer &&
+              !session.user?.isDoctor &&
+              !session.user?.isManager && (
               <>
                 <Link
                   href="/seller"
@@ -214,6 +304,16 @@ export default function UserNav({ overlay = false }: { overlay?: boolean }) {
               </>
             )}
 
+            {session.user?.role === "DELIVERY" && (
+              <Link
+                href="/delivery"
+                className="block rounded-lg px-3 py-2 text-sm text-ink-muted transition-colors hover:bg-surface"
+                onClick={() => setOpen(false)}
+              >
+                Delivery Runs
+              </Link>
+            )}
+
             {session.user?.role === "ADMIN" && (
               <Link
                 href="/admin"
@@ -226,7 +326,7 @@ export default function UserNav({ overlay = false }: { overlay?: boolean }) {
 
             <button
               type="button"
-              onClick={() => signOut()}
+              onClick={() => void handleSignOut()}
               className="block w-full rounded-lg px-3 py-2 text-left text-sm text-red-400 transition-colors hover:bg-surface"
             >
               Sign Out

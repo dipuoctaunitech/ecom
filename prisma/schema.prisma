@@ -11,6 +11,13 @@ enum Role {
   BUYER
   SELLER
   ADMIN
+  DELIVERY
+}
+
+enum PaymentMarkedByRole {
+  SELLER
+  DELIVERY
+  ADMIN
 }
 
 enum OrderStatus {
@@ -75,6 +82,17 @@ model User {
   image          String?
   passwordHash   String?
   role           Role            @default(BUYER)
+  /// Customer contact & shipping profile (optional).
+  phone          String?
+  vetContact     String?
+  /// Optional buyer GSTIN for B2B invoices at checkout.
+  gstNumber      String?
+  addressLine1   String?
+  addressLine2   String?
+  city           String?
+  state          String?
+  postalCode     String?
+  country        String?
   accounts       Account[]
   sessions       Session[]
   products       Product[]
@@ -83,6 +101,43 @@ model User {
   sellerSettings SellerSettings?
   discountCodes  DiscountCode[]
   reviews        ProductReview[]
+  sellerPayments OrderPayment[]  @relation("OrderPaymentSeller")
+  paymentMarks   OrderPayment[]  @relation("OrderPaymentMarkedBy")
+  categories     Category[]
+  /// Stores this user owns (single-tenant today; multi-tenant later).
+  ownedStores    Store[]         @relation("StoreOwner")
+  storeMembers   StoreMember[]
+  staffProfiles  StaffMember[]
+  bookings       Booking[]       @relation("BookingCustomer")
+  pets           CustomerPet[]
+  /// Orders assigned to this user when role is DELIVERY.
+  deliveryOrders Order[]         @relation("OrderDeliveryBoy")
+}
+
+/// Pets belonging to a customer (account dashboard profiles).
+model CustomerPet {
+  id               String    @id @default(cuid())
+  ownerId          String
+  owner            User      @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  name             String
+  species          String
+  breed            String?
+  sex              String?
+  dateOfBirth      DateTime? @db.Date
+  weightKg         Decimal?  @db.Decimal(6, 2)
+  color            String?
+  microchipId      String?
+  vaccinatedAt     DateTime? @db.Date
+  dewormedAt       DateTime? @db.Date
+  diagnosis        String?   @db.Text
+  bbmpLicense      String?
+  insurancePolicy  String?
+  notes            String?   @db.Text
+  imageUrl         String?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  @@index([ownerId])
 }
 
 model VerificationToken {
@@ -94,40 +149,109 @@ model VerificationToken {
 }
 
 model Category {
-  id        String    @id @default(cuid())
-  name      String
-  slug      String    @unique
-  image     String?
-  products  Product[]
-  createdAt DateTime  @default(now())
+  id          String          @id @default(cuid())
+  name        String
+  slug        String          @unique
+  image       String?
+  /// Display order for store-wide Shop by Category (lower = first).
+  sortOrder   Int             @default(0)
+  /// Null = store-wide category. Set = private to that seller.
+  sellerId    String?
+  seller      User?           @relation(fields: [sellerId], references: [id], onDelete: Cascade)
+  /// Products assigned to this category (many-to-many).
+  products    Product[]       @relation("ProductCategories")
+  collections PetCollection[]
+  createdAt   DateTime        @default(now())
+
+  @@index([sellerId])
+  @@index([sellerId, sortOrder])
+}
+
+/// Pet Items “Pet Collections” row — groups by pet, ordered by managers.
+model PetCollection {
+  id         String    @id @default(cuid())
+  name       String
+  slug       String    @unique
+  /// Short label under the name (e.g. "Tail wags").
+  tag        String
+  image      String
+  sortOrder  Int       @default(0)
+  /// Optional store category used when filtering products from this collection.
+  categoryId String?
+  category   Category? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  @@index([sortOrder])
+  @@index([categoryId])
+}
+
+/// Offers shelf bands — products land in a group by discount percent.
+model OfferGroup {
+  id          String   @id @default(cuid())
+  title       String
+  description String   @db.Text
+  /// Inclusive lower bound of discount percent (1–100).
+  minPercent  Int
+  /// Inclusive upper bound of discount percent (1–100).
+  maxPercent  Int
+  sortOrder   Int      @default(0)
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([sortOrder])
+  @@index([minPercent, maxPercent])
 }
 
 model Product {
-  id                  String           @id @default(cuid())
+  id                  String            @id @default(cuid())
   title               String
-  description         String           @db.Text
-  price               Decimal          @db.Decimal(10, 2)
+  description         String            @db.Text
+  /// Brand / manufacturer shown on the listing and used in search.
+  brand               String            @default("")
+  /// Pet types this product is for (e.g. Dogs, Cats). Powers shop-by-pet filters.
+  animals             String[]          @default([])
+  /// Freeform keywords used by shop search and tag filters.
+  tags                String[]          @default([])
+  price               Decimal           @db.Decimal(10, 2)
   /// Original price before discount; when set and greater than `price`, product is on offer.
-  compareAtPrice      Decimal?         @db.Decimal(10, 2)
+  compareAtPrice      Decimal?          @db.Decimal(10, 2)
+  /// Loyalty points awarded for purchasing this product (editable). Compared to price as a %.
+  loyaltyPoints       Int               @default(0)
+  /// Product photos and videos (max 5).
   images              String[]
-  stock               Int              @default(0)
-  lowStockThreshold   Int              @default(5)
+  stock               Int               @default(0)
+  lowStockThreshold   Int               @default(5)
   locationName        String?
   locationAddress     String?
   locationCity        String?
   locationCountry     String?
-  createdAt           DateTime         @default(now())
-  updatedAt           DateTime         @updatedAt
+  createdAt           DateTime          @default(now())
+  updatedAt           DateTime          @updatedAt
   sellerId            String
-  seller              User             @relation(fields: [sellerId], references: [id], onDelete: Cascade)
-  categoryId          String?
-  category            Category?        @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  seller              User              @relation(fields: [sellerId], references: [id], onDelete: Cascade)
+  /// Shop and seller categories this product belongs to (many-to-many).
+  categories          Category[]        @relation("ProductCategories")
   variants            ProductVariant[]
   orderItems          OrderItem[]
   reviews             ProductReview[]
+  newArrivalEntry     NewArrivalEntry?
 
   @@index([sellerId])
-  @@index([categoryId])
+  @@index([brand])
+}
+
+/// Curated New Arrivals shelf on Pet Items.
+/// When empty, the shop falls back to the 15 most recently added products.
+model NewArrivalEntry {
+  id        String   @id @default(cuid())
+  productId String   @unique
+  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  sortOrder Int      @default(0)
+  createdAt DateTime @default(now())
+
+  @@index([sortOrder])
 }
 
 model ProductReview {
@@ -159,6 +283,9 @@ model SellerSettings {
   expressDeliveryDays     Int      @default(2)
   standardDeliveryFee     Decimal  @default(0) @db.Decimal(10, 2)
   expressDeliveryFee      Decimal  @default(9.99) @db.Decimal(10, 2)
+  /// Seller GSTIN shown on checkout (required for sellers).
+  gstNumber               String?
+  qrCodeUrl               String?
   updatedAt               DateTime @updatedAt
 }
 
@@ -175,17 +302,22 @@ model ProductVariant {
 }
 
 model Order {
-  id          String      @id @default(cuid())
-  buyerId     String
-  buyer       User        @relation(fields: [buyerId], references: [id], onDelete: Cascade)
-  status      OrderStatus @default(PENDING)
-  totalAmount Decimal     @db.Decimal(10, 2)
-  createdAt   DateTime    @default(now())
-  updatedAt   DateTime    @updatedAt
-  items       OrderItem[]
+  id            String         @id @default(cuid())
+  buyerId       String
+  buyer         User           @relation(fields: [buyerId], references: [id], onDelete: Cascade)
+  /// Delivery boy assigned to fulfill / collect COD for this order.
+  deliveryBoyId String?
+  deliveryBoy   User?          @relation("OrderDeliveryBoy", fields: [deliveryBoyId], references: [id], onDelete: SetNull)
+  status        OrderStatus    @default(PENDING)
+  totalAmount   Decimal        @db.Decimal(10, 2)
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+  items         OrderItem[]
+  payments      OrderPayment[]
 
   @@index([buyerId])
   @@index([status])
+  @@index([deliveryBoyId])
 }
 
 model OrderItem {
@@ -199,6 +331,28 @@ model OrderItem {
 
   @@index([orderId])
   @@index([productId])
+}
+
+model OrderPayment {
+  id                  String                @id @default(cuid())
+  orderId             String
+  order               Order                 @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  sellerId            String
+  seller              User                  @relation("OrderPaymentSeller", fields: [sellerId], references: [id], onDelete: Cascade)
+  receiptUrl          String?
+  paymentReceived     Boolean               @default(false)
+  paymentReceivedAt   DateTime?
+  /// Who confirmed COD/payment collection (seller, delivery, or admin).
+  paymentMarkedById   String?
+  paymentMarkedBy     User?                 @relation("OrderPaymentMarkedBy", fields: [paymentMarkedById], references: [id], onDelete: SetNull)
+  paymentMarkedByRole PaymentMarkedByRole?
+  createdAt           DateTime              @default(now())
+  updatedAt           DateTime              @updatedAt
+
+  @@unique([orderId, sellerId])
+  @@index([sellerId])
+  @@index([orderId])
+  @@index([paymentMarkedById])
 }
 
 model DiscountCode {
@@ -244,4 +398,234 @@ model StoreSettings {
   lowStockAlertThreshold Int      @default(5)
   loyaltyPointsEnabled   Boolean  @default(false)
   updatedAt              DateTime @updatedAt
+}
+
+// ---------------------------------------------------------------------------
+// Multi-tenant foundation (one Store today; many later).
+// All booking/roster entities are scoped by storeId from day one.
+// ---------------------------------------------------------------------------
+
+enum StoreMemberRole {
+  OWNER
+  MANAGER
+  GROOMER
+  DOCTOR
+}
+
+enum StaffType {
+  GROOMER
+  DOCTOR
+}
+
+enum ServiceVertical {
+  GROOMING
+  CLINIC
+}
+
+enum RosterExceptionType {
+  OFF
+  CUSTOM_HOURS
+}
+
+enum BookingStatus {
+  PENDING
+  CONFIRMED
+  COMPLETED
+  CANCELLED
+  NO_SHOW
+}
+
+/// Tenant root. v1 ships with a single default store.
+model Store {
+  id        String         @id @default(cuid())
+  slug      String         @unique
+  name      String
+  ownerId   String
+  owner     User           @relation("StoreOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+  isActive  Boolean        @default(true)
+  createdAt DateTime       @default(now())
+  updatedAt DateTime       @updatedAt
+  members    StoreMember[]
+  staff      StaffMember[]
+  services   BookableService[]
+  bookings   Booking[]
+  timeFrames ServiceTimeFrame[]
+
+  @@index([ownerId])
+}
+
+model StoreMember {
+  id        String          @id @default(cuid())
+  storeId   String
+  store     Store           @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role      StoreMemberRole
+  createdAt DateTime        @default(now())
+
+  @@unique([storeId, userId])
+  @@index([userId])
+}
+
+/// Groomer or doctor working under a store. Login (userId) optional until staff portals.
+model StaffMember {
+  id           String            @id @default(cuid())
+  storeId      String
+  store        Store             @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  userId       String?
+  user         User?             @relation(fields: [userId], references: [id], onDelete: SetNull)
+  type         StaffType
+  name         String
+  title        String?
+  bio          String?           @db.Text
+  imageUrl     String?
+  isActive     Boolean           @default(true)
+  createdAt    DateTime          @default(now())
+  updatedAt    DateTime          @updatedAt
+  weeklyRoster WeeklyRoster[]
+  exceptions   RosterException[]
+  services     StaffService[]
+  bookings     Booking[]
+  timeFrames   TimeFrameStaff[]
+
+  @@index([storeId, type])
+  @@index([userId])
+}
+
+/// Editable open window on the 24h day (e.g. 09:00–12:00). Mapped to staff.
+model ServiceTimeFrame {
+  id               String           @id @default(cuid())
+  storeId          String
+  store            Store            @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  vertical         ServiceVertical
+  name             String
+  /// "HH:mm" 24h store time
+  startTime        String
+  endTime          String
+  /// Step between bookable starts inside this frame.
+  slotDurationMins Int              @default(30)
+  /// Weekdays this frame applies to (0=Sun … 6=Sat). Empty = every day.
+  daysOfWeek       Int[]            @default([])
+  isActive         Boolean          @default(true)
+  sortOrder        Int              @default(0)
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
+  staffLinks       TimeFrameStaff[]
+
+  @@index([storeId, vertical])
+}
+
+model TimeFrameStaff {
+  id          String           @id @default(cuid())
+  timeFrameId String
+  timeFrame   ServiceTimeFrame @relation(fields: [timeFrameId], references: [id], onDelete: Cascade)
+  staffId     String
+  staff       StaffMember      @relation(fields: [staffId], references: [id], onDelete: Cascade)
+
+  @@unique([timeFrameId, staffId])
+  @@index([staffId])
+}
+
+model WeeklyRoster {
+  id               String      @id @default(cuid())
+  staffId          String
+  staff            StaffMember @relation(fields: [staffId], references: [id], onDelete: Cascade)
+  /// 0 = Sunday … 6 = Saturday
+  dayOfWeek        Int
+  /// "HH:mm" 24h local store time
+  startTime        String
+  endTime          String
+  slotDurationMins Int         @default(30)
+
+  @@unique([staffId, dayOfWeek])
+  @@index([staffId])
+}
+
+model RosterException {
+  id        String              @id @default(cuid())
+  staffId   String
+  staff     StaffMember         @relation(fields: [staffId], references: [id], onDelete: Cascade)
+  date      DateTime            @db.Date
+  type      RosterExceptionType
+  startTime String?
+  endTime   String?
+  note      String?
+
+  @@unique([staffId, date])
+  @@index([staffId])
+}
+
+model BookableService {
+  id             String            @id @default(cuid())
+  storeId        String
+  store          Store             @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  vertical       ServiceVertical
+  name           String
+  description    String            @db.Text
+  durationMins   Int
+  price          Decimal           @db.Decimal(10, 2)
+  /// Original price before offer; when set and greater than `price`, service is on offer.
+  compareAtPrice Decimal?          @db.Decimal(10, 2)
+  /// Points awarded when this service is booked (same rules as product loyalty).
+  loyaltyPoints  Int               @default(0)
+  imageUrl       String?
+  /// Package of other services sold as one bookable item.
+  isCombo        Boolean           @default(false)
+  isActive       Boolean           @default(true)
+  sortOrder      Int               @default(0)
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+  staffLinks     StaffService[]
+  bookings       Booking[]
+  comboItems     ServiceComboItem[] @relation("ComboParent")
+  includedIn     ServiceComboItem[] @relation("ComboChild")
+
+  @@index([storeId, vertical])
+}
+
+/// Links a combo BookableService to the base services it includes.
+model ServiceComboItem {
+  id        String          @id @default(cuid())
+  comboId   String
+  combo     BookableService @relation("ComboParent", fields: [comboId], references: [id], onDelete: Cascade)
+  serviceId String
+  service   BookableService @relation("ComboChild", fields: [serviceId], references: [id], onDelete: Cascade)
+
+  @@unique([comboId, serviceId])
+  @@index([serviceId])
+}
+
+model StaffService {
+  id        String          @id @default(cuid())
+  staffId   String
+  staff     StaffMember     @relation(fields: [staffId], references: [id], onDelete: Cascade)
+  serviceId String
+  service   BookableService @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+
+  @@unique([staffId, serviceId])
+  @@index([serviceId])
+}
+
+model Booking {
+  id         String          @id @default(cuid())
+  storeId    String
+  store      Store           @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  customerId String
+  customer   User            @relation("BookingCustomer", fields: [customerId], references: [id], onDelete: Cascade)
+  staffId    String
+  staff      StaffMember     @relation(fields: [staffId], references: [id], onDelete: Cascade)
+  serviceId  String
+  service    BookableService @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+  startAt    DateTime
+  endAt      DateTime
+  status     BookingStatus   @default(PENDING)
+  notes      String?         @db.Text
+  createdAt  DateTime        @default(now())
+  updatedAt  DateTime        @updatedAt
+
+  @@index([storeId, startAt])
+  @@index([staffId, startAt])
+  @@index([customerId])
+  @@index([serviceId])
+  @@index([status])
 }

@@ -7,6 +7,7 @@ import { useState } from "react";
 import type { Product } from "@shared/types";
 import { isProductOnOffer } from "@shared/types";
 import { useCartStore } from "@/store/useCartStore";
+import { formatINR } from "@/lib/money";
 
 interface ProductCardProps {
   product: Product;
@@ -47,12 +48,12 @@ export function ProductCard({ product, className = "" }: ProductCardProps) {
 
   return (
     <article
-      className={`group relative flex w-full shrink-0 flex-col rounded-2xl bg-surface-elevated p-2.5 shadow-[0_1px_2px_rgba(0,0,0,0.06)] ring-1 ring-line transition-shadow hover:shadow-md ${className}`}
+      className={`group relative flex w-full shrink-0 flex-col rounded-3xl bg-surface-elevated p-2.5 shadow-[0_1px_2px_rgba(20,36,28,0.06)] ring-1 ring-line transition-shadow hover:shadow-md hover:ring-meadow/30 ${className}`}
     >
       <div className="relative mb-3">
         <Link
           href={`/product/${product.id}`}
-          className="relative block aspect-square overflow-hidden rounded-xl bg-surface"
+          className="relative block aspect-square overflow-hidden rounded-2xl bg-surface"
         >
           {product.imageUrl ? (
             <Image
@@ -69,7 +70,7 @@ export function ProductCard({ product, className = "" }: ProductCardProps) {
           )}
 
           {discountPercent != null && discountPercent > 0 && (
-            <span className="absolute left-2 top-2 rounded-md bg-emerald-600 px-1.5 py-0.5 text-[10px] font-bold text-white shadow-sm">
+            <span className="absolute left-2 top-2 rounded-full bg-highlight px-2 py-0.5 text-[10px] font-bold text-white shadow-sm">
               {discountPercent}% off
             </span>
           )}
@@ -85,10 +86,10 @@ export function ProductCard({ product, className = "" }: ProductCardProps) {
           type="button"
           onClick={handleAdd}
           disabled={!canAdd}
-          className={`absolute -bottom-3 right-2 flex h-8 min-w-14 items-center justify-center gap-1 rounded-lg px-2.5 text-xs font-bold shadow-md transition-colors disabled:cursor-not-allowed ${
+          className={`absolute -bottom-3 right-2 flex h-8 min-w-14 items-center justify-center gap-1 rounded-full px-2.5 text-xs font-bold shadow-md transition-colors disabled:cursor-not-allowed ${
             added
-              ? "bg-emerald-600 text-white"
-              : "bg-white text-emerald-700 ring-1 ring-emerald-600 hover:bg-emerald-600 hover:text-white disabled:bg-neutral-200 disabled:text-neutral-400 disabled:ring-neutral-300"
+              ? "bg-meadow text-white"
+              : "bg-white text-meadow ring-1 ring-meadow hover:bg-meadow hover:text-white disabled:bg-neutral-200 disabled:text-neutral-400 disabled:ring-neutral-300"
           }`}
           aria-label={
             outOfStock
@@ -130,11 +131,11 @@ export function ProductCard({ product, className = "" }: ProductCardProps) {
 
       <div className="mt-1.5 flex items-baseline gap-1.5">
         <span className="text-sm font-bold tabular-nums text-ink">
-          ${product.price.toFixed(2)}
+          {formatINR(product.price)}
         </span>
         {onOffer && product.compareAtPrice != null && (
           <span className="text-xs tabular-nums text-ink-muted line-through">
-            ${product.compareAtPrice.toFixed(2)}
+            {formatINR(product.compareAtPrice)}
           </span>
         )}
       </div>

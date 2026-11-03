@@ -7,6 +7,7 @@ import {
   toggleDiscountCode,
   type AdminDiscountCode,
 } from "@/app/actions/admin"
+import { formatINR } from "@/lib/money"
 
 function formatDate(iso: string | null) {
   if (!iso) return "—"
@@ -146,7 +147,7 @@ export default function AdminMarketing({
           </div>
           <div>
             <label className="block text-xs font-medium uppercase tracking-[0.12em] text-ink-muted">
-              Value {form.type === "PERCENTAGE" ? "(%)" : "($)"}
+              Value {form.type === "PERCENTAGE" ? "(%)" : "(₹)"}
             </label>
             <input
               required
@@ -160,7 +161,7 @@ export default function AdminMarketing({
           </div>
           <div>
             <label className="block text-xs font-medium uppercase tracking-[0.12em] text-ink-muted">
-              Min. Order ($)
+              Min. Order (₹)
             </label>
             <input
               type="number"
@@ -261,10 +262,10 @@ export default function AdminMarketing({
                   <td className="px-5 py-4 text-sm text-ink">
                     {code.type === "PERCENTAGE"
                       ? `${code.value}% off`
-                      : `$${code.value.toFixed(2)} off`}
+                      : `${formatINR(code.value)} off`}
                     {code.minOrderAmount != null && (
                       <span className="mt-0.5 block text-xs text-ink-muted">
-                        Min. ${code.minOrderAmount.toFixed(2)}
+                        Min. {formatINR(code.minOrderAmount)}
                       </span>
                     )}
                   </td>

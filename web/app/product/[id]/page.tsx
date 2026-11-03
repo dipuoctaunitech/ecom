@@ -18,9 +18,9 @@ export default async function ProductDetailPage({ params }: ProductPageProps) {
     where: { id },
     include: {
       seller: {
-        select: { name: true },
+        select: { id: true, name: true, email: true },
       },
-      category: {
+      categories: {
         select: { name: true, slug: true },
       },
     },

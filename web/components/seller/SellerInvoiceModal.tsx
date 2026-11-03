@@ -2,6 +2,8 @@
 
 import { X } from "lucide-react"
 import type { SellerOrderListItem } from "@/app/actions/seller"
+import { EnlargeableImage } from "@/components/EnlargeableImage"
+import { formatINR } from "@/lib/money"
 
 function formatDate(iso: string) {
   return new Intl.DateTimeFormat("en-US", {
@@ -13,9 +15,11 @@ function formatDate(iso: string) {
 
 export default function SellerInvoiceModal({
   order,
+  qrCodeUrl,
   onClose,
 }: {
   order: SellerOrderListItem
+  qrCodeUrl: string | null
   onClose: () => void
 }) {
   const subtotal = order.items.reduce(
@@ -43,7 +47,7 @@ export default function SellerInvoiceModal({
         <div className="p-6" id="seller-invoice-content">
           <div className="mb-8">
             <p className="font-display text-xs font-medium uppercase tracking-[0.18em] text-ink-muted">
-              FORMA Seller
+              namma pets Club Seller
             </p>
             <h4 className="mt-1 font-display text-xl font-medium text-ink">
               Order Invoice
@@ -83,10 +87,10 @@ export default function SellerInvoiceModal({
                     {item.quantity}
                   </td>
                   <td className="py-3 text-right tabular-nums text-ink-muted">
-                    ${item.priceAtPurchase.toFixed(2)}
+                    {formatINR(item.priceAtPurchase)}
                   </td>
                   <td className="py-3 text-right tabular-nums font-medium text-ink">
-                    ${(item.priceAtPurchase * item.quantity).toFixed(2)}
+                    {formatINR(item.priceAtPurchase * item.quantity)}
                   </td>
                 </tr>
               ))}
@@ -96,18 +100,49 @@ export default function SellerInvoiceModal({
           <div className="border-t border-line pt-4 text-sm">
             <div className="flex justify-between text-ink-muted">
               <span>Your items</span>
-              <span className="tabular-nums">${subtotal.toFixed(2)}</span>
+              <span className="tabular-nums">{formatINR(subtotal)}</span>
             </div>
             <div className="mt-2 flex justify-between font-medium text-ink">
               <span>Seller total</span>
               <span className="tabular-nums">
-                ${order.sellerTotal.toFixed(2)}
+                {formatINR(order.sellerTotal)}
               </span>
             </div>
             <p className="mt-4 text-xs uppercase tracking-wide text-ink-muted">
               Status: {order.status}
             </p>
+            <p className="mt-1 text-xs uppercase tracking-wide text-ink-muted">
+              Payment: {order.paymentReceived ? "Received" : "Awaiting confirmation"}
+            </p>
           </div>
+
+          {qrCodeUrl && (
+            <div className="mt-6 border border-line p-4">
+              <p className="text-xs font-medium uppercase tracking-[0.12em] text-ink-muted">
+                Payment QR
+              </p>
+              <EnlargeableImage
+                src={qrCodeUrl}
+                alt="Seller payment QR"
+                wrapClassName="mt-3 h-40 w-40 p-2"
+                className="h-full w-full object-contain"
+              />
+            </div>
+          )}
+
+          {order.receiptUrl && (
+            <div className="mt-6 border border-line p-4">
+              <p className="text-xs font-medium uppercase tracking-[0.12em] text-ink-muted">
+                Payment receipt
+              </p>
+              <EnlargeableImage
+                src={order.receiptUrl}
+                alt="Buyer payment receipt"
+                wrapClassName="mt-3 w-full"
+                className="max-h-56 w-full object-contain"
+              />
+            </div>
+          )}
         </div>
 
         <div className="flex gap-3 border-t border-line px-6 py-4 print:hidden">

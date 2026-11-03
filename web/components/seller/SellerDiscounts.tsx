@@ -7,6 +7,7 @@ import {
   toggleSellerDiscountCode,
   type SellerDiscountCode,
 } from "@/app/actions/seller"
+import { formatINR } from "@/lib/money"
 
 function formatDate(iso: string | null) {
   if (!iso) return "—"
@@ -146,7 +147,7 @@ export default function SellerDiscounts({
           </div>
           <div>
             <label className="block text-xs font-medium uppercase tracking-[0.12em] text-ink-muted">
-              Value {form.type === "PERCENTAGE" ? "(%)" : "($)"}
+              Value {form.type === "PERCENTAGE" ? "(%)" : "(₹)"}
             </label>
             <input
               required
@@ -160,7 +161,7 @@ export default function SellerDiscounts({
           </div>
           <div>
             <label className="block text-xs font-medium uppercase tracking-[0.12em] text-ink-muted">
-              Min. Order ($)
+              Min. Order (₹)
             </label>
             <input
               type="number"
@@ -251,7 +252,7 @@ export default function SellerDiscounts({
                   <td className="px-5 py-4 text-sm text-ink">
                     {code.type === "PERCENTAGE"
                       ? `${code.value}% off`
-                      : `$${code.value.toFixed(2)} off`}
+                      : `${formatINR(code.value)} off`}
                   </td>
                   <td className="px-5 py-4 text-sm tabular-nums text-ink-muted">
                     {code.usedCount}

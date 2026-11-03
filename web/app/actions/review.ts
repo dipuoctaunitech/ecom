@@ -174,7 +174,11 @@ export async function deleteProductReview(reviewId: string) {
     throw new Error("Review not found.")
   }
 
-  const isAdmin = session.user.role === "ADMIN"
+  const dbUser = await prisma.user.findUnique({
+    where: { id: session.user.id },
+    select: { role: true },
+  })
+  const isAdmin = dbUser?.role === "ADMIN"
   if (review.userId !== session.user.id && !isAdmin) {
     throw new Error("You can only delete your own review.")
   }

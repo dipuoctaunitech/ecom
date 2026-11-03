@@ -1,27 +1,27 @@
 import type { Metadata } from "next";
-import { Manrope, Outfit } from "next/font/google";
+import { Bricolage_Grotesque, Nunito } from "next/font/google";
 import { getServerSession } from "next-auth";
 import AuthProvider from "@/components/providers/AuthProvider";
 import ThemeProvider from "@/components/providers/ThemeProvider";
 import { authOptions } from "@/lib/auth";
+import { BRAND_NAME, BRAND_TAGLINE } from "@/lib/brand";
 import "./globals.css";
 
-const outfit = Outfit({
+const bricolage = Bricolage_Grotesque({
   subsets: ["latin"],
-  variable: "--font-outfit",
+  variable: "--font-bricolage",
   display: "swap",
 });
 
-const manrope = Manrope({
+const nunito = Nunito({
   subsets: ["latin"],
-  variable: "--font-manrope",
+  variable: "--font-nunito",
   display: "swap",
 });
 
 export const metadata: Metadata = {
-  title: "FORMA — Curated Everyday Objects",
-  description:
-    "A refined collection of lighting, kitchenware, and home essentials.",
+  title: `${BRAND_NAME} — ${BRAND_TAGLINE}`,
+  description: `${BRAND_TAGLINE}. Care for your pet in one place — shop, groom, or see the clinic.`,
 };
 
 export default async function RootLayout({
@@ -32,7 +32,11 @@ export default async function RootLayout({
   const session = await getServerSession(authOptions);
 
   return (
-    <html lang="en" className={`${outfit.variable} ${manrope.variable}`} suppressHydrationWarning>
+    <html
+      lang="en"
+      className={`${bricolage.variable} ${nunito.variable}`}
+      suppressHydrationWarning
+    >
       <head>
         <script
           dangerouslySetInnerHTML={{

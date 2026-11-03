@@ -6,18 +6,26 @@ import { prisma } from "@/lib/prisma"
 import { revalidatePath } from "next/cache"
 import bcrypt from "bcryptjs"
 import { setOrderStatus } from "@/lib/orders"
+import { markOrderSellerPaymentReceived } from "@/lib/payments"
+import { resolveProductImageUrl } from "@/lib/images"
 import {
   DiscountType,
   OrderStatus,
   Role,
   TicketPriority,
   TicketStatus,
+  type PaymentMarkedByRole,
+  type StaffType,
+  type StoreMemberRole,
 } from "@prisma/client"
 import {
+  assertValidCategoryName,
   assertValidDiscountInput,
   assertValidPassword,
   assertValidProductFields,
+  toCategorySlug,
 } from "@/lib/validation"
+import { requireActiveStore } from "@/lib/store"
 
 /** Returned and refunded orders are money given back, so they are not revenue. */
 const REVENUE_EXCLUDED_STATUSES: OrderStatus[] = ["REFUNDED", "RETURNED"]
@@ -45,9 +53,9 @@ async function requireAdmin() {
 export async function updateUserRole(userId: string, newRole: Role) {
   const session = await requireAdmin()
 
-  const assignableRoles: Role[] = ["BUYER", "SELLER"]
+  const assignableRoles: Role[] = ["BUYER", "SELLER", "DELIVERY"]
   if (!assignableRoles.includes(newRole)) {
-    throw new Error("Only BUYER and SELLER roles can be assigned.")
+    throw new Error("Only BUYER, SELLER, and DELIVERY roles can be assigned.")
   }
 
   if (userId === session.user.id && newRole !== "ADMIN") {
@@ -70,12 +78,60 @@ export async function updateUserRole(userId: string, newRole: Role) {
     throw new Error("Admin accounts are protected and cannot be reassigned.")
   }
 
-  await prisma.user.update({
-    where: { id: userId },
-    data: { role: newRole },
+  if (newRole === "BUYER" || newRole === "DELIVERY") {
+    const productCount = await prisma.product.count({
+      where: { sellerId: userId },
+    })
+    if (productCount > 0) {
+      throw new Error(
+        "This seller still has products. Remove them before changing their role."
+      )
+    }
+  }
+
+  if (target.role === "DELIVERY" && newRole !== "DELIVERY") {
+    const openDeliveries = await prisma.order.count({
+      where: {
+        deliveryBoyId: userId,
+        status: { notIn: ["DELIVERED", "RETURNED", "REFUNDED"] },
+      },
+    })
+    if (openDeliveries > 0) {
+      throw new Error(
+        "Reassign open deliveries before changing this delivery account."
+      )
+    }
+  }
+
+  await prisma.$transaction(async (tx) => {
+    await tx.user.update({
+      where: { id: userId },
+      data: { role: newRole },
+    })
+
+    if (newRole === "SELLER") {
+      await tx.sellerSettings.upsert({
+        where: { sellerId: userId },
+        create: { sellerId: userId },
+        update: {},
+      })
+    }
+
+    if (newRole !== "DELIVERY") {
+      await tx.order.updateMany({
+        where: {
+          deliveryBoyId: userId,
+          status: { in: ["DELIVERED", "RETURNED", "REFUNDED"] },
+        },
+        data: { deliveryBoyId: null },
+      })
+    }
   })
 
   revalidatePath("/admin")
+  revalidatePath("/delivery")
+  revalidatePath("/store")
+  revalidatePath("/")
   return { success: true }
 }
 
@@ -105,7 +161,7 @@ export async function createSeller(data: {
     throw new Error("A user with this email already exists.")
   }
 
-  const passwordHash = await bcrypt.hash(password, 10)
+  const passwordHash = await bcrypt.hash(password, 12)
 
   const seller = await prisma.user.create({
     data: {
@@ -113,6 +169,7 @@ export async function createSeller(data: {
       email,
       passwordHash,
       role: "SELLER",
+      sellerSettings: { create: {} },
     },
     select: {
       id: true,
@@ -123,7 +180,67 @@ export async function createSeller(data: {
   })
 
   revalidatePath("/admin")
+  revalidatePath("/")
   return { success: true, seller }
+}
+
+export type AdminSellerRow = {
+  id: string
+  name: string | null
+  email: string | null
+  productCount: number
+  hasQrCode: boolean
+}
+
+export type AdminBuyerRow = {
+  id: string
+  name: string | null
+  email: string | null
+}
+
+export async function getAdminSellers(): Promise<{
+  sellers: AdminSellerRow[]
+  buyers: AdminBuyerRow[]
+}> {
+  await requireAdmin()
+
+  const [sellers, buyers] = await Promise.all([
+    prisma.user.findMany({
+      where: {
+        role: "SELLER",
+        // Groomers / doctors are staff accounts, not marketplace sellers.
+        NOT: {
+          storeMembers: {
+            some: { role: { in: ["GROOMER", "DOCTOR"] } },
+          },
+        },
+      },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        _count: { select: { products: true } },
+        sellerSettings: { select: { qrCodeUrl: true } },
+      },
+      orderBy: { email: "asc" },
+    }),
+    prisma.user.findMany({
+      where: { role: "BUYER" },
+      select: { id: true, name: true, email: true },
+      orderBy: { email: "asc" },
+    }),
+  ])
+
+  return {
+    sellers: sellers.map((seller) => ({
+      id: seller.id,
+      name: seller.name,
+      email: seller.email,
+      productCount: seller._count.products,
+      hasQrCode: Boolean(seller.sellerSettings?.qrCodeUrl),
+    })),
+    buyers,
+  }
 }
 
 // ─── Analytics ──────────────────────────────────────────────────────────────
@@ -278,11 +395,24 @@ export async function getAdminKPIs(): Promise<AdminKPIs> {
 
 // ─── Orders ─────────────────────────────────────────────────────────────────
 
+export type AdminOrderPayment = {
+  sellerId: string
+  sellerName: string
+  sellerTotal: number
+  qrCodeUrl: string | null
+  receiptUrl: string | null
+  paymentReceived: boolean
+  paymentReceivedAt: string | null
+  paymentMarkedByRole: PaymentMarkedByRole | null
+}
+
 export type AdminOrderListItem = {
   id: string
   status: OrderStatus
   totalAmount: number
   createdAt: string
+  deliveryBoyId: string | null
+  deliveryBoyName: string | null
   buyer: {
     id: string
     email: string | null
@@ -295,8 +425,17 @@ export type AdminOrderListItem = {
     product: {
       id: string
       title: string
+      sellerId: string
     }
   }[]
+  payments: AdminOrderPayment[]
+}
+
+export type AdminDeliveryBoyRow = {
+  id: string
+  name: string | null
+  email: string | null
+  activeAssignments: number
 }
 
 export type PaginatedOrders = {
@@ -326,32 +465,112 @@ export async function getAdminOrders(
         buyer: {
           select: { id: true, email: true, name: true },
         },
+        deliveryBoy: {
+          select: { id: true, name: true, email: true },
+        },
         items: {
           include: {
             product: {
-              select: { id: true, title: true },
+              select: {
+                id: true,
+                title: true,
+                sellerId: true,
+                seller: {
+                  select: {
+                    name: true,
+                    email: true,
+                    sellerSettings: { select: { qrCodeUrl: true } },
+                  },
+                },
+              },
             },
           },
         },
+        payments: true,
       },
     }),
     prisma.order.count(),
   ])
 
   return {
-    orders: orders.map((order) => ({
-      id: order.id,
-      status: order.status,
-      totalAmount: Number(order.totalAmount),
-      createdAt: order.createdAt.toISOString(),
-      buyer: order.buyer,
-      items: order.items.map((item) => ({
-        id: item.id,
-        quantity: item.quantity,
-        priceAtPurchase: Number(item.priceAtPurchase),
-        product: item.product,
-      })),
-    })),
+    orders: orders.map((order) => {
+      const totalsBySeller = new Map<string, number>()
+      for (const item of order.items) {
+        const line =
+          item.quantity * Number(item.priceAtPurchase)
+        totalsBySeller.set(
+          item.product.sellerId,
+          (totalsBySeller.get(item.product.sellerId) ?? 0) + line
+        )
+      }
+
+      const paymentBySeller = new Map(
+        order.payments.map((payment) => [payment.sellerId, payment])
+      )
+
+      const sellerMeta = new Map<
+        string,
+        { name: string; qrCodeUrl: string | null }
+      >()
+      for (const item of order.items) {
+        if (sellerMeta.has(item.product.sellerId)) continue
+        sellerMeta.set(item.product.sellerId, {
+          name:
+            item.product.seller.name?.trim() ||
+            item.product.seller.email?.split("@")[0] ||
+            "Seller",
+          qrCodeUrl: item.product.seller.sellerSettings?.qrCodeUrl
+            ? resolveProductImageUrl(
+                item.product.seller.sellerSettings.qrCodeUrl
+              )
+            : null,
+        })
+      }
+
+      const payments: AdminOrderPayment[] = [...totalsBySeller.entries()].map(
+        ([sellerId, sellerTotal]) => {
+          const payment = paymentBySeller.get(sellerId)
+          const meta = sellerMeta.get(sellerId)
+          return {
+            sellerId,
+            sellerName: meta?.name ?? "Seller",
+            sellerTotal: Math.round(sellerTotal * 100) / 100,
+            qrCodeUrl: meta?.qrCodeUrl ?? null,
+            receiptUrl: payment?.receiptUrl
+              ? resolveProductImageUrl(payment.receiptUrl)
+              : null,
+            paymentReceived: payment?.paymentReceived ?? false,
+            paymentReceivedAt:
+              payment?.paymentReceivedAt?.toISOString() ?? null,
+            paymentMarkedByRole: payment?.paymentMarkedByRole ?? null,
+          }
+        }
+      )
+
+      return {
+        id: order.id,
+        status: order.status,
+        totalAmount: Number(order.totalAmount),
+        createdAt: order.createdAt.toISOString(),
+        deliveryBoyId: order.deliveryBoyId,
+        deliveryBoyName:
+          order.deliveryBoy?.name?.trim() ||
+          order.deliveryBoy?.email?.split("@")[0] ||
+          null,
+        buyer: order.buyer,
+        items: order.items.map((item) => ({
+          id: item.id,
+          quantity: item.quantity,
+          priceAtPurchase: Number(item.priceAtPurchase),
+          product: {
+            id: item.product.id,
+            title: item.product.title,
+            sellerId: item.product.sellerId,
+          },
+        })),
+        payments,
+      }
+    }),
     total,
     page: safePage,
     pageSize: safePageSize,
@@ -366,8 +585,355 @@ export async function updateOrderStatus(orderId: string, status: OrderStatus) {
 
   revalidatePath("/admin")
   revalidatePath("/seller")
+  revalidatePath("/delivery")
+  revalidatePath("/store")
   revalidatePath("/")
   return { success: true }
+}
+
+export async function createDeliveryBoy(data: {
+  name: string
+  email: string
+  password: string
+}) {
+  await requireAdmin()
+
+  const name = data.name.trim()
+  const email = data.email.trim().toLowerCase()
+  const password = data.password
+
+  if (!name) {
+    throw new Error("Delivery name is required.")
+  }
+
+  if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    throw new Error("A valid email address is required.")
+  }
+
+  assertValidPassword(password)
+
+  const existing = await prisma.user.findUnique({ where: { email } })
+  if (existing) {
+    throw new Error("A user with this email already exists.")
+  }
+
+  const passwordHash = await bcrypt.hash(password, 12)
+
+  const deliveryBoy = await prisma.user.create({
+    data: {
+      name,
+      email,
+      passwordHash,
+      role: "DELIVERY",
+    },
+    select: {
+      id: true,
+      name: true,
+      email: true,
+      role: true,
+    },
+  })
+
+  revalidatePath("/admin")
+  revalidatePath("/delivery")
+  revalidatePath("/store")
+  revalidatePath("/")
+  return { success: true, deliveryBoy }
+}
+
+export async function getAdminDeliveryBoys(): Promise<AdminDeliveryBoyRow[]> {
+  await requireAdmin()
+
+  const deliveryBoys = await prisma.user.findMany({
+    where: { role: "DELIVERY" },
+    select: {
+      id: true,
+      name: true,
+      email: true,
+      _count: {
+        select: {
+          deliveryOrders: {
+            where: {
+              status: { notIn: ["DELIVERED", "RETURNED", "REFUNDED"] },
+            },
+          },
+        },
+      },
+    },
+    orderBy: { email: "asc" },
+  })
+
+  return deliveryBoys.map((row) => ({
+    id: row.id,
+    name: row.name,
+    email: row.email,
+    activeAssignments: row._count.deliveryOrders,
+  }))
+}
+
+/** Default Mon–Sat hours so new staff appear on the roster immediately. */
+const DEFAULT_STAFF_WEEKDAY_ROSTER = [
+  { dayOfWeek: 1, startTime: "09:00", endTime: "17:00", slotDurationMins: 30 },
+  { dayOfWeek: 2, startTime: "09:00", endTime: "17:00", slotDurationMins: 30 },
+  { dayOfWeek: 3, startTime: "09:00", endTime: "17:00", slotDurationMins: 30 },
+  { dayOfWeek: 4, startTime: "09:00", endTime: "17:00", slotDurationMins: 30 },
+  { dayOfWeek: 5, startTime: "09:00", endTime: "17:00", slotDurationMins: 30 },
+  { dayOfWeek: 6, startTime: "10:00", endTime: "14:00", slotDurationMins: 30 },
+] as const
+
+export type AdminStaffRow = {
+  id: string
+  userId: string | null
+  name: string
+  email: string | null
+  title: string | null
+  type: StaffType
+  isActive: boolean
+  hasLogin: boolean
+}
+
+/**
+ * Create a groomer or clinic doctor login linked to the active store.
+ * Matches seed: SELLER user + StoreMember + StaffMember + weekday roster.
+ */
+export async function createStoreStaff(data: {
+  name: string
+  email: string
+  password: string
+  type: StaffType
+  title?: string
+}) {
+  await requireAdmin()
+
+  const name = data.name.trim()
+  const email = data.email.trim().toLowerCase()
+  const password = data.password
+  const title = data.title?.trim() || null
+  const type = data.type
+
+  if (type !== "GROOMER" && type !== "DOCTOR") {
+    throw new Error("Staff type must be GROOMER or DOCTOR.")
+  }
+
+  if (!name) {
+    throw new Error("Name is required.")
+  }
+
+  if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    throw new Error("A valid email address is required.")
+  }
+
+  assertValidPassword(password)
+
+  const existing = await prisma.user.findUnique({ where: { email } })
+  if (existing) {
+    throw new Error("A user with this email already exists.")
+  }
+
+  const store = await requireActiveStore()
+  const passwordHash = await bcrypt.hash(password, 12)
+  const defaultTitle =
+    title || (type === "GROOMER" ? "Groomer" : "Veterinarian")
+  const storeRole = type as StoreMemberRole
+
+  const created = await prisma.$transaction(async (tx) => {
+    const user = await tx.user.create({
+      data: {
+        name,
+        email,
+        passwordHash,
+        role: "SELLER",
+        sellerSettings: { create: {} },
+      },
+      select: { id: true, name: true, email: true },
+    })
+
+    await tx.storeMember.create({
+      data: {
+        storeId: store.id,
+        userId: user.id,
+        role: storeRole,
+      },
+    })
+
+    const staff = await tx.staffMember.create({
+      data: {
+        storeId: store.id,
+        userId: user.id,
+        type,
+        name,
+        title: defaultTitle,
+        weeklyRoster: {
+          create: DEFAULT_STAFF_WEEKDAY_ROSTER.map((row) => ({ ...row })),
+        },
+      },
+      select: {
+        id: true,
+        name: true,
+        title: true,
+        type: true,
+        isActive: true,
+      },
+    })
+
+    return { user, staff }
+  })
+
+  revalidatePath("/admin")
+  revalidatePath("/groomer")
+  revalidatePath("/doctor")
+  revalidatePath("/store")
+  revalidatePath("/grooming")
+  revalidatePath("/clinic")
+  revalidatePath("/")
+
+  return {
+    success: true,
+    staff: {
+      id: created.staff.id,
+      userId: created.user.id,
+      name: created.staff.name,
+      email: created.user.email,
+      title: created.staff.title,
+      type: created.staff.type,
+      isActive: created.staff.isActive,
+      hasLogin: true,
+    } satisfies AdminStaffRow,
+  }
+}
+
+export async function getAdminStoreStaff(): Promise<AdminStaffRow[]> {
+  await requireAdmin()
+  const store = await requireActiveStore()
+
+  const staff = await prisma.staffMember.findMany({
+    where: {
+      storeId: store.id,
+      type: { in: ["GROOMER", "DOCTOR"] },
+    },
+    select: {
+      id: true,
+      userId: true,
+      name: true,
+      title: true,
+      type: true,
+      isActive: true,
+      user: { select: { email: true } },
+    },
+    orderBy: [{ type: "asc" }, { name: "asc" }],
+  })
+
+  return staff.map((row) => ({
+    id: row.id,
+    userId: row.userId,
+    name: row.name,
+    email: row.user?.email ?? null,
+    title: row.title,
+    type: row.type,
+    isActive: row.isActive,
+    hasLogin: Boolean(row.userId),
+  }))
+}
+
+export async function setStoreStaffActive(
+  staffId: string,
+  isActive: boolean
+) {
+  await requireAdmin()
+  const store = await requireActiveStore()
+
+  const staff = await prisma.staffMember.findFirst({
+    where: {
+      id: staffId,
+      storeId: store.id,
+      type: { in: ["GROOMER", "DOCTOR"] },
+    },
+    select: { id: true },
+  })
+
+  if (!staff) {
+    throw new Error("Staff member not found.")
+  }
+
+  await prisma.staffMember.update({
+    where: { id: staffId },
+    data: { isActive },
+  })
+
+  revalidatePath("/admin")
+  revalidatePath("/groomer")
+  revalidatePath("/doctor")
+  revalidatePath("/store")
+  revalidatePath("/grooming")
+  revalidatePath("/clinic")
+  revalidatePath("/")
+  return { success: true }
+}
+
+export async function assignOrderDeliveryBoy(
+  orderId: string,
+  deliveryBoyId: string | null
+) {
+  await requireAdmin()
+
+  const order = await prisma.order.findUnique({
+    where: { id: orderId },
+    select: { id: true },
+  })
+  if (!order) {
+    throw new Error("Order not found.")
+  }
+
+  if (deliveryBoyId) {
+    const deliveryBoy = await prisma.user.findFirst({
+      where: { id: deliveryBoyId, role: "DELIVERY" },
+      select: { id: true },
+    })
+    if (!deliveryBoy) {
+      throw new Error("Delivery account not found.")
+    }
+  }
+
+  await prisma.order.update({
+    where: { id: orderId },
+    data: { deliveryBoyId },
+  })
+
+  revalidatePath("/admin")
+  revalidatePath("/delivery")
+  revalidatePath("/store")
+  revalidatePath("/seller")
+  revalidatePath("/account")
+  revalidatePath("/orders")
+  return { success: true as const }
+}
+
+export async function markAdminPaymentReceived(
+  orderId: string,
+  sellerId: string
+) {
+  const session = await requireAdmin()
+
+  const order = await prisma.order.findFirst({
+    where: {
+      id: orderId,
+      items: { some: { product: { sellerId } } },
+    },
+    select: { id: true },
+  })
+
+  if (!order) {
+    throw new Error("Order not found or has no items from that seller.")
+  }
+
+  await markOrderSellerPaymentReceived({
+    orderId,
+    sellerId,
+    markedByUserId: session.user.id,
+    markedByRole: "ADMIN",
+  })
+
+  return { success: true as const }
 }
 
 // ─── Products & Inventory ───────────────────────────────────────────────────
@@ -378,7 +944,8 @@ export type AdminProduct = {
   price: number
   stock: number
   lowStockThreshold: number
-  category: { id: string; name: string } | null
+  categories: { id: string; name: string }[]
+  animals: string[]
   seller: { id: string; name: string | null; email: string | null }
   variants: { id: string; label: string; stock: number; price: number | null }[]
   isLowStock: boolean
@@ -388,7 +955,10 @@ export type AdminCategory = {
   id: string
   name: string
   slug: string
+  sortOrder: number
   productCount: number
+  sellerId: string | null
+  sellerName: string | null
 }
 
 export async function getAdminProducts(): Promise<AdminProduct[]> {
@@ -398,7 +968,7 @@ export async function getAdminProducts(): Promise<AdminProduct[]> {
   const products = await prisma.product.findMany({
     orderBy: { updatedAt: "desc" },
     include: {
-      category: { select: { id: true, name: true } },
+      categories: { select: { id: true, name: true } },
       seller: { select: { id: true, name: true, email: true } },
       variants: { select: { id: true, label: true, stock: true, price: true } },
     },
@@ -410,7 +980,8 @@ export async function getAdminProducts(): Promise<AdminProduct[]> {
     price: Number(product.price),
     stock: product.stock,
     lowStockThreshold: product.lowStockThreshold,
-    category: product.category,
+    categories: product.categories,
+    animals: product.animals,
     seller: product.seller,
     variants: product.variants.map((v) => ({
       id: v.id,
@@ -426,15 +997,21 @@ export async function getAdminCategories(): Promise<AdminCategory[]> {
   await requireAdmin()
 
   const categories = await prisma.category.findMany({
-    orderBy: { name: "asc" },
-    include: { _count: { select: { products: true } } },
+    orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
+    include: {
+      _count: { select: { products: true } },
+      seller: { select: { name: true, email: true } },
+    },
   })
 
   return categories.map((cat) => ({
     id: cat.id,
     name: cat.name,
     slug: cat.slug,
+    sortOrder: cat.sortOrder,
     productCount: cat._count.products,
+    sellerId: cat.sellerId,
+    sellerName: cat.seller?.name?.trim() || cat.seller?.email || null,
   }))
 }
 
@@ -444,7 +1021,7 @@ export async function updateAdminProduct(
     title?: string
     price?: number
     stock?: number
-    categoryId?: string | null
+    categoryIds?: string[]
     lowStockThreshold?: number
   }
 ) {
@@ -478,13 +1055,46 @@ export async function updateAdminProduct(
     throw new Error("Low stock threshold must be a non-negative integer.")
   }
 
+  let categoryIds: string[] | undefined
+  if (data.categoryIds !== undefined) {
+    categoryIds = Array.from(
+      new Set(data.categoryIds.map((id) => id.trim()).filter(Boolean))
+    )
+    if (categoryIds.length === 0) {
+      throw new Error("Select at least one category.")
+    }
+
+    const product = await prisma.product.findUnique({
+      where: { id: productId },
+      select: { sellerId: true },
+    })
+    if (!product) {
+      throw new Error("Product not found.")
+    }
+
+    const categories = await prisma.category.findMany({
+      where: { id: { in: categoryIds } },
+      select: { id: true, sellerId: true },
+    })
+    if (categories.length !== categoryIds.length) {
+      throw new Error("One or more categories were not found.")
+    }
+    for (const category of categories) {
+      if (category.sellerId && category.sellerId !== product.sellerId) {
+        throw new Error("That category belongs to another seller.")
+      }
+    }
+  }
+
   await prisma.product.update({
     where: { id: productId },
     data: {
       ...(data.title !== undefined && { title: data.title }),
       ...(data.price !== undefined && { price: data.price }),
       ...(data.stock !== undefined && { stock: data.stock }),
-      ...(data.categoryId !== undefined && { categoryId: data.categoryId }),
+      ...(categoryIds !== undefined && {
+        categories: { set: categoryIds.map((id) => ({ id })) },
+      }),
       ...(data.lowStockThreshold !== undefined && {
         lowStockThreshold: data.lowStockThreshold,
       }),
@@ -495,24 +1105,38 @@ export async function updateAdminProduct(
   return { success: true }
 }
 
+/** @deprecated Prefer createStoreCategory in store-categories actions (supports image + order). */
 export async function createAdminCategory(name: string) {
   await requireAdmin()
 
-  const slug = name
-    .toLowerCase()
-    .trim()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-|-$/g, "")
+  const trimmed = assertValidCategoryName(name)
+  const slug = toCategorySlug(trimmed)
 
-  if (!slug) {
-    throw new Error("Invalid category name.")
+  const existing = await prisma.category.findUnique({
+    where: { slug },
+    select: { id: true },
+  })
+  if (existing) {
+    throw new Error("A store category with that name already exists.")
   }
 
+  const maxOrder = await prisma.category.aggregate({
+    where: { sellerId: null },
+    _max: { sortOrder: true },
+  })
+
   await prisma.category.create({
-    data: { name: name.trim(), slug },
+    data: {
+      name: trimmed,
+      slug,
+      sellerId: null,
+      sortOrder: (maxOrder._max.sortOrder ?? -1) + 1,
+    },
   })
 
   revalidatePath("/admin")
+  revalidatePath("/items")
+  revalidatePath("/")
   return { success: true }
 }
 

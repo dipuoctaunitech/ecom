@@ -1,19 +1,17 @@
 "use client";
 
 import { FormEvent, useState } from "react";
-import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Search, ShoppingBag } from "lucide-react";
 import { useCartStore } from "@/store/useCartStore";
+import { BrandLogo } from "@/components/BrandLogo";
 import UserNav from "@/components/UserNav";
 import ThemeToggle from "@/components/ThemeToggle";
 
 const NAV_LINKS = [
-  { label: "New", href: "#new" },
-  { label: "Lighting", href: "/?category=lighting#new" },
-  { label: "Kitchenware", href: "/?category=kitchenware#new" },
-  { label: "Furniture", href: "/?category=furniture#new" },
-  { label: "Offers", href: "#offers" },
+  { label: "Pet Items", href: "/items" },
+  { label: "Grooming", href: "/grooming" },
+  { label: "Clinic", href: "/clinic" },
 ];
 
 interface SiteHeaderProps {
@@ -31,34 +29,31 @@ export function SiteHeader({ overlay = false }: SiteHeaderProps) {
 
   function handleSearch(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const params = new URLSearchParams(searchParams.toString());
+    const params = new URLSearchParams();
     if (query.trim()) {
       params.set("q", query.trim());
-    } else {
-      params.delete("q");
     }
-    params.delete("category");
     const queryString = params.toString();
-    router.push(queryString ? `/?${queryString}#new` : "/");
+    router.push(queryString ? `/items?${queryString}#new` : "/items");
   }
 
   return (
     <header
       className={
         overlay
-          ? "absolute inset-x-0 top-0 z-40 border-b border-white/20 bg-gradient-to-b from-black/40 to-transparent backdrop-blur-[2px]"
+          ? "absolute inset-x-0 top-0 z-40 border-b border-white/15 bg-gradient-to-b from-[#14241c]/50 to-transparent backdrop-blur-[2px]"
           : "sticky top-0 z-30 border-b border-line bg-surface/95 backdrop-blur supports-[backdrop-filter]:bg-surface/85"
       }
     >
-      <div className="mx-auto flex max-w-7xl flex-wrap items-center gap-x-6 gap-y-3 px-6 py-3.5 md:px-8">
-        <Link
-          href="/"
-          className={`font-display text-xl font-bold tracking-[0.1em] ${
-            overlay ? "text-white [text-shadow:0_2px_10px_rgba(0,0,0,0.8)]" : "text-ink"
-          }`}
-        >
-          FORMA
-        </Link>
+      <div className="mx-auto flex w-full flex-wrap items-center gap-x-6 gap-y-3 px-6 py-5 md:px-10 md:py-6">
+        <BrandLogo
+          size="header"
+          className={
+            overlay
+              ? "[filter:drop-shadow(0_1px_2px_rgba(0,0,0,0.85))_drop-shadow(0_0_1px_rgba(255,255,255,0.35))]"
+              : ""
+          }
+        />
 
         <nav className="hidden items-center gap-6 lg:flex">
           {NAV_LINKS.map((link) => (
@@ -67,7 +62,7 @@ export function SiteHeader({ overlay = false }: SiteHeaderProps) {
               href={link.href}
               className={`text-sm font-semibold transition-colors ${
                 overlay
-                  ? "text-white [text-shadow:0_1px_8px_rgba(0,0,0,0.75)] hover:text-white/90"
+                  ? "text-white/95 [text-shadow:0_1px_8px_rgba(0,0,0,0.45)] hover:text-white"
                   : "text-ink-muted hover:text-ink"
               }`}
             >
@@ -80,10 +75,10 @@ export function SiteHeader({ overlay = false }: SiteHeaderProps) {
           onSubmit={handleSearch}
           role="search"
           method="get"
-          action="/"
-          className={`order-last flex h-11 w-full min-w-0 items-center gap-2 rounded-full border px-4 text-sm transition-colors sm:order-none sm:w-auto sm:flex-1 sm:max-w-md ${
+          action="/items"
+          className={`order-last flex h-11 w-full min-w-0 items-center gap-2 rounded-full border px-4 text-sm transition-colors sm:order-none sm:w-auto sm:flex-1 sm:max-w-2xl ${
             overlay
-              ? "border-white/50 bg-white/15 text-white shadow-md backdrop-blur-md focus-within:border-white/70 focus-within:bg-white/25"
+              ? "border-white/45 bg-white/15 text-white shadow-md backdrop-blur-md focus-within:border-white/70 focus-within:bg-white/25"
               : "border-line bg-surface-elevated text-ink focus-within:border-highlight/60"
           }`}
         >
@@ -103,7 +98,7 @@ export function SiteHeader({ overlay = false }: SiteHeaderProps) {
             name="q"
             value={query}
             onChange={(event) => setQuery(event.target.value)}
-            placeholder="Search for lighting, kitchenware, home..."
+            placeholder="Search treats, toys, beds..."
             aria-label="Search products"
             className={`w-full min-w-0 bg-transparent text-sm focus:outline-none ${
               overlay
@@ -121,7 +116,7 @@ export function SiteHeader({ overlay = false }: SiteHeaderProps) {
             <button
               type="button"
               onClick={toggleCart}
-              className="relative flex h-11 items-center gap-2 rounded-full bg-highlight px-4 text-sm font-semibold text-surface shadow-md transition-colors hover:bg-highlight-dark focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-highlight"
+              className="relative flex h-11 items-center gap-2 rounded-full bg-highlight px-4 text-sm font-bold text-white shadow-md transition-colors hover:bg-highlight-dark focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-highlight"
               aria-label={`Open cart${itemCount > 0 ? `, ${itemCount} items` : ""}`}
             >
               <ShoppingBag className="h-4 w-4" strokeWidth={2} />

@@ -19,15 +19,15 @@ export function ProductRow({
   emptyMessage = "Nothing here yet. Check back soon.",
 }: ProductRowProps) {
   return (
-    <section id={id} className="bg-surface px-6 py-10 md:px-8 md:py-12">
+    <section id={id} className="px-6 py-10 md:px-8 md:py-12">
       <div className="mx-auto max-w-7xl">
         <div className="mb-5 md:mb-6">
           {eyebrow && (
-            <p className="text-xs font-semibold uppercase tracking-[0.22em] text-highlight">
+            <p className="text-xs font-bold uppercase tracking-[0.2em] text-highlight">
               {eyebrow}
             </p>
           )}
-          <h2 className="mt-1 font-display text-2xl font-medium tracking-tight text-ink md:text-3xl">
+          <h2 className="mt-1 font-display text-2xl font-bold tracking-tight text-ink md:text-3xl">
             {title}
           </h2>
           {subtitle && (
@@ -36,7 +36,7 @@ export function ProductRow({
         </div>
 
         {products.length === 0 ? (
-          <div className="rounded-xl border border-dashed border-line bg-surface-elevated p-10 text-center">
+          <div className="rounded-2xl border border-dashed border-line bg-surface-elevated/80 p-10 text-center">
             <p className="text-sm text-ink-muted">{emptyMessage}</p>
           </div>
         ) : (

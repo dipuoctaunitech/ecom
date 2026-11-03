@@ -3,7 +3,6 @@
 import { useState, useTransition } from "react"
 import { AlertTriangle } from "lucide-react"
 import {
-  createAdminCategory,
   updateAdminProduct,
   type AdminCategory,
   type AdminProduct,
@@ -11,48 +10,35 @@ import {
 
 export default function AdminProductTable({
   initialProducts,
-  categories: initialCategories,
 }: {
   initialProducts: AdminProduct[]
   categories: AdminCategory[]
 }) {
   const [products, setProducts] = useState(initialProducts)
-  const [categories, setCategories] = useState(initialCategories)
   const [isPending, startTransition] = useTransition()
   const [error, setError] = useState("")
-  const [newCategoryName, setNewCategoryName] = useState("")
 
   const handleUpdate = (
     productId: string,
-    field: "stock" | "price" | "categoryId",
+    field: "stock" | "price",
     value: string
   ) => {
     setError("")
     startTransition(async () => {
       try {
         const payload =
-          field === "categoryId"
-            ? { categoryId: value || null }
-            : field === "stock"
-              ? { stock: parseInt(value, 10) }
-              : { price: parseFloat(value) }
+          field === "stock"
+            ? { stock: parseInt(value, 10) }
+            : { price: parseFloat(value) }
 
         await updateAdminProduct(productId, payload)
         setProducts((current) =>
           current.map((product) => {
             if (product.id !== productId) return product
-            if (field === "categoryId") {
-              const category = categories.find((c) => c.id === value) ?? null
-              return {
-                ...product,
-                category: category
-                  ? { id: category.id, name: category.name }
-                  : null,
-              }
-            }
             return {
               ...product,
-              [field]: field === "stock" ? parseInt(value, 10) : parseFloat(value),
+              [field]:
+                field === "stock" ? parseInt(value, 10) : parseFloat(value),
               isLowStock:
                 field === "stock"
                   ? parseInt(value, 10) <= product.lowStockThreshold
@@ -66,20 +52,6 @@ export default function AdminProductTable({
     })
   }
 
-  const handleCreateCategory = () => {
-    if (!newCategoryName.trim()) return
-    setError("")
-    startTransition(async () => {
-      try {
-        await createAdminCategory(newCategoryName)
-        setNewCategoryName("")
-        window.location.reload()
-      } catch (err) {
-        setError(err instanceof Error ? err.message : "Failed to create category")
-      }
-    })
-  }
-
   const lowStockProducts = products.filter((p) => p.isLowStock)
 
   return (
@@ -89,7 +61,8 @@ export default function AdminProductTable({
           Product & Inventory
         </h2>
         <p className="mt-2 text-sm text-ink-muted">
-          Manage catalog, categories, stock levels, and variants.
+          Manage catalog, stock levels, and variants. Shop categories are edited
+          under Categories.
         </p>
       </div>
 
@@ -112,28 +85,6 @@ export default function AdminProductTable({
         </div>
       )}
 
-      <div className="mb-8 flex flex-col gap-3 border border-line bg-surface p-4 sm:flex-row sm:items-end">
-        <div className="flex-1">
-          <label className="block text-xs font-medium uppercase tracking-[0.12em] text-ink-muted">
-            New Category
-          </label>
-          <input
-            type="text"
-            value={newCategoryName}
-            onChange={(e) => setNewCategoryName(e.target.value)}
-            placeholder="e.g. Kitchenware"
-            className="mt-2 w-full border border-line bg-surface-elevated px-3 py-2 text-sm focus:border-ink focus:outline-none"
-          />
-        </div>
-        <button
-          type="button"
-          onClick={handleCreateCategory}
-          disabled={isPending || !newCategoryName.trim()}
-          className="border border-ink bg-ink px-4 py-2 text-xs font-medium uppercase tracking-wide text-white transition-colors hover:bg-neutral-800 disabled:opacity-50"
-        >
-          Add Category
-        </button>
-      </div>
 
       <div className="overflow-x-auto border border-line bg-surface-elevated">
         <table className="min-w-full divide-y divide-line">
@@ -143,7 +94,7 @@ export default function AdminProductTable({
                 Product
               </th>
               <th className="px-5 py-3 text-left text-xs font-medium uppercase tracking-[0.12em] text-ink-muted">
-                Category
+                Categories / Animals
               </th>
               <th className="px-5 py-3 text-left text-xs font-medium uppercase tracking-[0.12em] text-ink-muted">
                 Price
@@ -188,22 +139,17 @@ export default function AdminProductTable({
                       {product.title}
                     </div>
                   </td>
-                  <td className="px-5 py-4">
-                    <select
-                      value={product.category?.id ?? ""}
-                      onChange={(e) =>
-                        handleUpdate(product.id, "categoryId", e.target.value)
-                      }
-                      disabled={isPending}
-                      className="h-9 min-w-[120px] border border-line bg-surface-elevated px-2 text-sm focus:border-ink focus:outline-none disabled:opacity-50"
-                    >
-                      <option value="">Uncategorized</option>
-                      {categories.map((cat) => (
-                        <option key={cat.id} value={cat.id}>
-                          {cat.name}
-                        </option>
-                      ))}
-                    </select>
+                  <td className="px-5 py-4 text-sm text-ink-muted">
+                    <div>
+                      {product.categories.length > 0
+                        ? product.categories.map((c) => c.name).join(", ")
+                        : "Uncategorized"}
+                    </div>
+                    {product.animals.length > 0 && (
+                      <div className="mt-1 text-xs">
+                        {product.animals.join(" · ")}
+                      </div>
+                    )}
                   </td>
                   <td className="px-5 py-4">
                     <input

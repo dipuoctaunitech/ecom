@@ -1,6 +1,6 @@
 import {
   AlertTriangle,
-  DollarSign,
+  IndianRupee,
   Megaphone,
   Package,
   ShoppingBag,
@@ -8,6 +8,7 @@ import {
   Users,
 } from "lucide-react"
 import type { AdminAnalytics } from "@/app/actions/admin"
+import { formatINR } from "@/lib/money"
 
 type MetricCardProps = {
   label: string
@@ -57,19 +58,13 @@ export default function AdminOverview({ analytics }: { analytics: AdminAnalytics
   const metrics = [
     {
       label: "Total Revenue",
-      value: `$${analytics.totalRevenue.toLocaleString(undefined, {
-        minimumFractionDigits: 2,
-        maximumFractionDigits: 2,
-      })}`,
+      value: formatINR(analytics.totalRevenue),
       sub: `${analytics.totalOrders} orders`,
-      icon: <DollarSign className="h-4 w-4" strokeWidth={1.75} />,
+      icon: <IndianRupee className="h-4 w-4" strokeWidth={1.75} />,
     },
     {
       label: "Avg. Order Value",
-      value: `$${analytics.averageOrderValue.toLocaleString(undefined, {
-        minimumFractionDigits: 2,
-        maximumFractionDigits: 2,
-      })}`,
+      value: formatINR(analytics.averageOrderValue),
       icon: <TrendingUp className="h-4 w-4" strokeWidth={1.75} />,
     },
     {
@@ -153,7 +148,7 @@ export default function AdminOverview({ analytics }: { analytics: AdminAnalytics
                         {product.unitsSold}
                       </td>
                       <td className="px-4 py-3 text-right text-sm tabular-nums font-medium text-ink">
-                        ${product.revenue.toFixed(2)}
+                        {formatINR(product.revenue)}
                       </td>
                     </tr>
                   ))

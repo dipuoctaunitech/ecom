@@ -110,7 +110,7 @@ export default function SellerDeliveryPanel({
           <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div>
               <label className="block text-xs font-medium uppercase tracking-[0.12em] text-ink-muted">
-                Standard Fee ($)
+                Standard Fee (₹)
               </label>
               <input
                 type="number"
@@ -147,7 +147,7 @@ export default function SellerDeliveryPanel({
             </div>
             <div>
               <label className="block text-xs font-medium uppercase tracking-[0.12em] text-ink-muted">
-                Express Fee ($)
+                Express Fee (₹)
               </label>
               <input
                 type="number"

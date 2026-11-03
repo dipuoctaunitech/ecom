@@ -2,6 +2,7 @@
 
 import { X } from "lucide-react"
 import type { AdminOrderListItem } from "@/app/actions/admin"
+import { formatINR } from "@/lib/money"
 
 function formatDate(iso: string) {
   return new Intl.DateTimeFormat("en-US", {
@@ -45,7 +46,7 @@ export default function AdminInvoiceModal({
         <div className="p-6" id="invoice-content">
           <div className="mb-8">
             <p className="font-display text-xs font-medium uppercase tracking-[0.18em] text-ink-muted">
-              FORMA
+              namma pets Club
             </p>
             <h4 className="mt-1 font-display text-xl font-medium text-ink">
               Order Invoice
@@ -85,10 +86,10 @@ export default function AdminInvoiceModal({
                     {item.quantity}
                   </td>
                   <td className="py-3 text-right tabular-nums text-ink-muted">
-                    ${item.priceAtPurchase.toFixed(2)}
+                    {formatINR(item.priceAtPurchase)}
                   </td>
                   <td className="py-3 text-right tabular-nums font-medium text-ink">
-                    ${(item.priceAtPurchase * item.quantity).toFixed(2)}
+                    {formatINR(item.priceAtPurchase * item.quantity)}
                   </td>
                 </tr>
               ))}
@@ -98,11 +99,11 @@ export default function AdminInvoiceModal({
           <div className="border-t border-line pt-4 text-sm">
             <div className="flex justify-between text-ink-muted">
               <span>Subtotal</span>
-              <span className="tabular-nums">${subtotal.toFixed(2)}</span>
+              <span className="tabular-nums">{formatINR(subtotal)}</span>
             </div>
             <div className="mt-2 flex justify-between font-medium text-ink">
               <span>Total</span>
-              <span className="tabular-nums">${order.totalAmount.toFixed(2)}</span>
+              <span className="tabular-nums">{formatINR(order.totalAmount)}</span>
             </div>
             <p className="mt-4 text-xs uppercase tracking-wide text-ink-muted">
               Status: {order.status}

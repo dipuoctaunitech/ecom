@@ -9,6 +9,8 @@ import { useCartStore } from "@/store/useCartStore";
 import { CartSidebar } from "@/components/CartSidebar";
 import { ProductImageZoom } from "@/components/ProductImageZoom";
 import { ProductReviews } from "@/components/ProductReviews";
+import { formatINR } from "@/lib/money";
+import { loyaltyPointsPercentOfPrice } from "@/lib/product-meta";
 
 interface ProductDetailViewProps {
   product: Product;
@@ -161,20 +163,42 @@ export function ProductDetailView({
 
           <div className="animate-fade-up delay-100 flex flex-col md:pt-4">
             <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-ink-muted">
-              {product.category}
+              {[
+                product.brand,
+                product.animals && product.animals.length > 0
+                  ? product.animals.join(", ")
+                  : null,
+                product.categories && product.categories.length > 0
+                  ? product.categories.map((c) => c.name).join(", ")
+                  : product.category,
+              ]
+                .filter(Boolean)
+                .join(" · ")}
             </p>
             <h1 className="mt-3 font-display text-3xl font-medium tracking-tight text-ink md:text-4xl">
               {product.name}
             </h1>
             <p className="mt-4 flex items-baseline gap-3 font-display text-2xl font-medium tabular-nums text-ink">
-              <span>${product.price.toFixed(2)}</span>
+              <span>{formatINR(product.price)}</span>
               {product.compareAtPrice != null &&
                 product.compareAtPrice > product.price && (
                   <span className="text-lg font-normal text-ink-muted line-through">
-                    ${product.compareAtPrice.toFixed(2)}
+                    {formatINR(product.compareAtPrice)}
                   </span>
                 )}
             </p>
+            {(product.loyaltyPoints ?? 0) > 0 && (
+              <p className="mt-2 text-sm text-ink-muted">
+                Earn {product.loyaltyPoints} loyalty points
+                {(() => {
+                  const pct = loyaltyPointsPercentOfPrice(
+                    product.loyaltyPoints ?? 0,
+                    product.price
+                  )
+                  return pct == null ? "" : ` · ${pct}% of price`
+                })()}
+              </p>
+            )}
 
             {reviewSummary.reviewCount > 0 && (
               <a
@@ -206,6 +230,20 @@ export function ProductDetailView({
             <p className="mt-6 max-w-md text-base leading-relaxed text-ink-muted">
               {product.description}
             </p>
+
+            {product.tags && product.tags.length > 0 && (
+              <div className="mt-4 flex flex-wrap gap-2">
+                {product.tags.map((tag) => (
+                  <Link
+                    key={tag}
+                    href={`/items?tag=${encodeURIComponent(tag)}#new`}
+                    className="border border-line bg-surface-elevated px-2.5 py-1 text-xs text-ink-muted transition-colors hover:border-ink hover:text-ink"
+                  >
+                    {tag}
+                  </Link>
+                ))}
+              </div>
+            )}
 
             <p className="mt-4 text-sm text-ink-muted">
               {outOfStock

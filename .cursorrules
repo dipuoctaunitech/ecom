@@ -30,3 +30,4 @@ MOBILE CODING RULES (Inside /mobile):
 - Use Expo with React Native components (<View>, <Text>, <TouchableOpacity>).
 - Use Expo Router for file-based navigation.
 - Never mix web HTML tags (div, span, button) into the mobile codebase.
+- Always check for lint errors and fix

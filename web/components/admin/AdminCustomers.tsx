@@ -8,6 +8,7 @@ import {
   type AdminSupportTicket,
 } from "@/app/actions/admin"
 import { TicketStatus } from "@prisma/client"
+import { formatINR } from "@/lib/money"
 
 const TICKET_STATUS_OPTIONS: TicketStatus[] = [
   "OPEN",
@@ -117,7 +118,7 @@ export default function AdminCustomers({
       {highValueCustomers.length > 0 && (
         <div className="mb-8 border border-line bg-surface p-4">
           <p className="text-xs font-medium uppercase tracking-[0.12em] text-ink-muted">
-            High-Value Segment ($100+ lifetime spend)
+            High-Value Segment (₹100+ lifetime spend)
           </p>
           <p className="mt-2 text-sm text-ink">
             {highValueCustomers.length} customer
@@ -180,7 +181,7 @@ export default function AdminCustomers({
                         {customer.orderCount}
                       </td>
                       <td className="px-5 py-4 text-sm tabular-nums font-medium text-ink">
-                        ${customer.totalSpent.toFixed(2)}
+                        {formatINR(customer.totalSpent)}
                       </td>
                       <td className="px-5 py-4 text-sm text-ink-muted">
                         {customer.lastOrderAt
@@ -221,8 +222,8 @@ export default function AdminCustomers({
                                 >
                                   <div className="flex flex-wrap items-center justify-between gap-2">
                                     <span className="font-medium text-ink">
-                                      {formatDate(order.createdAt)} · $
-                                      {order.totalAmount.toFixed(2)}
+                                      {formatDate(order.createdAt)} ·{" "}
+                                      {formatINR(order.totalAmount)}
                                     </span>
                                     <span className="text-xs uppercase tracking-wide text-ink-muted">
                                       {order.status}

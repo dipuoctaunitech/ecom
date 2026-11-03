@@ -5,42 +5,90 @@ import Link from "next/link"
 import { useRouter, useSearchParams } from "next/navigation"
 import {
   ArrowLeft,
+  CalendarDays,
+  Clock3,
+  LayoutGrid,
   Megaphone,
   Package,
+  Percent,
   Plus,
+  QrCode,
+  Scissors,
   Ship,
   ShoppingBag,
+  Sparkles,
   Store,
+  Tags,
   Truck,
 } from "lucide-react"
 import type {
   PaginatedSellerOrders,
+  SellerCategory,
   SellerDeliverySettings,
   SellerDiscountCode,
   SellerProduct,
+  SellerQrSettings,
 } from "@/app/actions/seller"
+import type { StoreCategory } from "@/app/actions/store-categories"
+import type {
+  StoreCollection,
+  StoreCollectionCategoryOption,
+} from "@/app/actions/store-collections"
+import type {
+  NewArrivalManagedItem,
+  NewArrivalProductOption,
+} from "@/app/actions/store-new-arrivals"
+import type { StoreOfferGroup } from "@/app/actions/store-offer-groups"
 import SellerProductList from "@/components/seller/SellerProductList"
 import SellerAddProduct from "@/components/seller/SellerAddProduct"
+import SellerCategories from "@/components/seller/SellerCategories"
 import SellerDeliveryPanel from "@/components/seller/SellerDeliveryPanel"
 import SellerDiscounts from "@/components/seller/SellerDiscounts"
 import SellerShippingTable from "@/components/seller/SellerShippingTable"
+import SellerQrPanel from "@/components/seller/SellerQrPanel"
+import StoreCategoriesPanel from "@/components/store/StoreCategoriesPanel"
+import StoreCollectionsPanel from "@/components/store/StoreCollectionsPanel"
+import StoreNewArrivalsPanel from "@/components/store/StoreNewArrivalsPanel"
+import StoreOfferGroupsPanel from "@/components/store/StoreOfferGroupsPanel"
+import StoreRosterPanel from "@/components/store/StoreRosterPanel"
+import StoreServicesPanel from "@/components/store/StoreServicesPanel"
+import StoreTimeFramesPanel from "@/components/store/StoreTimeFramesPanel"
+import type { StoreRosterBoard } from "@/app/actions/store-roster"
+import type { ManagedService } from "@/app/actions/store-services"
+import type { TimeFrameBoard } from "@/app/actions/store-timeframes"
 
 type SellerTab =
   | "products"
   | "add"
+  | "categories"
+  | "collections"
+  | "new-arrivals"
+  | "offers"
+  | "services"
+  | "slots"
+  | "roster"
   | "shipping"
   | "delivery"
   | "discounts"
+  | "qr"
 
 const VALID_TABS: SellerTab[] = [
   "products",
   "add",
+  "categories",
+  "collections",
+  "new-arrivals",
+  "offers",
+  "services",
+  "slots",
+  "roster",
   "shipping",
   "delivery",
   "discounts",
+  "qr",
 ]
 
-const NAV_ITEMS: {
+const BASE_NAV_ITEMS: {
   id: SellerTab
   label: string
   icon: React.ReactNode
@@ -61,6 +109,41 @@ const NAV_ITEMS: {
     icon: <Plus className="h-4 w-4" strokeWidth={1.75} />,
   },
   {
+    id: "categories",
+    label: "Categories",
+    icon: <Tags className="h-4 w-4" strokeWidth={1.75} />,
+  },
+  {
+    id: "collections",
+    label: "Collections",
+    icon: <LayoutGrid className="h-4 w-4" strokeWidth={1.75} />,
+  },
+  {
+    id: "new-arrivals",
+    label: "New Arrivals",
+    icon: <Sparkles className="h-4 w-4" strokeWidth={1.75} />,
+  },
+  {
+    id: "offers",
+    label: "Offers",
+    icon: <Percent className="h-4 w-4" strokeWidth={1.75} />,
+  },
+  {
+    id: "services",
+    label: "Services",
+    icon: <Scissors className="h-4 w-4" strokeWidth={1.75} />,
+  },
+  {
+    id: "slots",
+    label: "Time frames",
+    icon: <Clock3 className="h-4 w-4" strokeWidth={1.75} />,
+  },
+  {
+    id: "roster",
+    label: "Roster",
+    icon: <CalendarDays className="h-4 w-4" strokeWidth={1.75} />,
+  },
+  {
     id: "delivery",
     label: "Delivery",
     icon: <Truck className="h-4 w-4" strokeWidth={1.75} />,
@@ -69,6 +152,11 @@ const NAV_ITEMS: {
     id: "discounts",
     label: "Discounts",
     icon: <Megaphone className="h-4 w-4" strokeWidth={1.75} />,
+  },
+  {
+    id: "qr",
+    label: "Payment & GST",
+    icon: <QrCode className="h-4 w-4" strokeWidth={1.75} />,
   },
 ]
 
@@ -84,17 +172,54 @@ export default function SellerDashboard({
   orders,
   deliverySettings,
   discountCodes,
+  qrSettings,
+  categories,
+  storeCategories = [],
+  storeCollections = [],
+  collectionCategoryOptions = [],
+  newArrivalItems = [],
+  newArrivalOptions = [],
+  newArrivalLimit = 15,
+  offerGroups = [],
+  managedServices = [],
+  timeFrameBoard = null,
+  rosterBoard = null,
+  canManageStoreCategories = false,
   initialTab = "products",
 }: {
   products: SellerProduct[]
   orders: PaginatedSellerOrders
   deliverySettings: SellerDeliverySettings
   discountCodes: SellerDiscountCode[]
+  qrSettings: SellerQrSettings
+  categories: SellerCategory[]
+  storeCategories?: StoreCategory[]
+  storeCollections?: StoreCollection[]
+  collectionCategoryOptions?: StoreCollectionCategoryOption[]
+  newArrivalItems?: NewArrivalManagedItem[]
+  newArrivalOptions?: NewArrivalProductOption[]
+  newArrivalLimit?: number
+  offerGroups?: StoreOfferGroup[]
+  managedServices?: ManagedService[]
+  timeFrameBoard?: TimeFrameBoard | null
+  rosterBoard?: StoreRosterBoard | null
+  canManageStoreCategories?: boolean
   initialTab?: SellerTab
 }) {
   const router = useRouter()
   const searchParams = useSearchParams()
   const activeTab = resolveTab(searchParams.get("tab") ?? initialTab)
+  const managerOnlyTabs: SellerTab[] = [
+    "collections",
+    "new-arrivals",
+    "offers",
+    "services",
+    "slots",
+    "roster",
+  ]
+  const navItems = canManageStoreCategories
+    ? BASE_NAV_ITEMS
+    : BASE_NAV_ITEMS.filter((item) => !managerOnlyTabs.includes(item.id))
 
   const setActiveTab = useCallback(
     (tab: SellerTab) => {
@@ -128,7 +253,7 @@ export default function SellerDashboard({
               </div>
               <div>
                 <p className="font-display text-xs font-medium uppercase tracking-[0.18em] text-ink-muted">
-                  FORMA Seller
+                  namma pets Club Seller
                 </p>
                 <h1 className="font-display text-xl font-medium tracking-tight text-ink">
                   Seller Dashboard
@@ -152,7 +277,7 @@ export default function SellerDashboard({
       <div className="mx-auto flex max-w-7xl flex-col gap-8 px-6 py-8 md:flex-row md:px-8 md:py-10">
         <aside className="md:w-56 md:shrink-0">
           <nav className="flex flex-row gap-2 overflow-x-auto md:flex-col md:overflow-visible">
-            {NAV_ITEMS.map((item) => {
+            {navItems.map((item) => {
               const isActive = activeTab === item.id
               return (
                 <button
@@ -182,10 +307,101 @@ export default function SellerDashboard({
           )}
 
           {activeTab === "shipping" && (
-            <SellerShippingTable initialData={orders} />
+            <SellerShippingTable
+              initialData={orders}
+              qrCodeUrl={qrSettings.qrCodeUrl}
+            />
           )}
 
-          {activeTab === "add" && <SellerAddProduct />}
+          {activeTab === "add" && (
+            <SellerAddProduct categories={categories} />
+          )}
+
+          {activeTab === "categories" && (
+            <div className="space-y-12">
+              {canManageStoreCategories && (
+                <StoreCategoriesPanel
+                  key={storeCategories
+                    .map((category) => `${category.id}:${category.sortOrder}`)
+                    .join("|")}
+                  initialCategories={storeCategories}
+                />
+              )}
+              <SellerCategories
+                key={categories
+                  .filter((category) => category.isOwn)
+                  .map((category) => category.id)
+                  .join("|")}
+                initialCategories={categories}
+              />
+            </div>
+          )}
+
+          {activeTab === "collections" && canManageStoreCategories && (
+            <StoreCollectionsPanel
+              key={storeCollections
+                .map((collection) => `${collection.id}:${collection.sortOrder}`)
+                .join("|")}
+              initialCollections={storeCollections}
+              categoryOptions={collectionCategoryOptions}
+            />
+          )}
+
+          {activeTab === "new-arrivals" && canManageStoreCategories && (
+            <StoreNewArrivalsPanel
+              key={newArrivalItems
+                .map((item) => `${item.id}:${item.sortOrder}`)
+                .join("|")}
+              initialItems={newArrivalItems}
+              productOptions={newArrivalOptions}
+              limit={newArrivalLimit}
+            />
+          )}
+
+          {activeTab === "offers" && canManageStoreCategories && (
+            <StoreOfferGroupsPanel
+              key={offerGroups
+                .map((group) => `${group.id}:${group.sortOrder}`)
+                .join("|")}
+              initialGroups={offerGroups}
+            />
+          )}
+
+          {activeTab === "services" && canManageStoreCategories && (
+            <StoreServicesPanel
+              key={managedServices
+                .map(
+                  (service) =>
+                    `${service.id}:${service.sortOrder}:${service.price}:${service.isActive}`
+                )
+                .join("|")}
+              initialServices={managedServices}
+              defaultVertical="GROOMING"
+            />
+          )}
+
+          {activeTab === "slots" &&
+            canManageStoreCategories &&
+            timeFrameBoard && (
+              <StoreTimeFramesPanel
+                key={`${timeFrameBoard.vertical}:${timeFrameBoard.frames
+                  .map((frame) => `${frame.id}:${frame.startTime}:${frame.endTime}`)
+                  .join("|")}`}
+                initialBoard={timeFrameBoard}
+              />
+            )}
+
+          {activeTab === "roster" &&
+            canManageStoreCategories &&
+            rosterBoard && (
+              <StoreRosterPanel
+                key={`${rosterBoard.dateKey}:${rosterBoard.staff
+                  .map((member) => member.id)
+                  .join("|")}`}
+                initialBoard={rosterBoard}
+                initialVertical="GROOMING"
+              />
+            )}
 
           {activeTab === "delivery" && (
             <SellerDeliveryPanel initialSettings={deliverySettings} />
@@ -193,6 +409,10 @@ export default function SellerDashboard({
 
           {activeTab === "discounts" && (
             <SellerDiscounts initialCodes={discountCodes} />
+          )}
+
+          {activeTab === "qr" && (
+            <SellerQrPanel initialSettings={qrSettings} />
           )}
         </main>
       </div>

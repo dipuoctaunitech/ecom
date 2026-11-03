@@ -10,7 +10,7 @@ const LOGIN_RATE_LIMIT = 10
 const LOGIN_WINDOW_MS = 60_000
 /** Caps credential-stuffing across many accounts from one source. */
 const LOGIN_IP_RATE_LIMIT = 30
-const PRIVILEGED_ROLES = new Set<Role>(["ADMIN", "SELLER"])
+const PRIVILEGED_ROLES = new Set<Role>(["ADMIN", "SELLER", "DELIVERY"])
 
 /**
  * Compared against when no user matches, so an unknown email costs the same
@@ -124,6 +124,27 @@ export const authOptions: NextAuthOptions = {
         }
       }
 
+      if (token.id && token.error !== "SessionRevoked") {
+        const userId = token.id as string
+        const [staffProfiles, managerMembership] = await Promise.all([
+          prisma.staffMember.findMany({
+            where: {
+              userId,
+              isActive: true,
+              type: { in: ["GROOMER", "DOCTOR"] },
+            },
+            select: { type: true },
+          }),
+          prisma.storeMember.findFirst({
+            where: { userId, role: "MANAGER" },
+            select: { id: true },
+          }),
+        ])
+        token.isGroomer = staffProfiles.some((row) => row.type === "GROOMER")
+        token.isDoctor = staffProfiles.some((row) => row.type === "DOCTOR")
+        token.isManager = Boolean(managerMembership)
+      }
+
       return token
     },
     session({ session, token }) {
@@ -133,6 +154,9 @@ export const authOptions: NextAuthOptions = {
       if (session.user) {
         session.user.id = token.id as string
         session.user.role = token.role as Role
+        session.user.isGroomer = Boolean(token.isGroomer)
+        session.user.isDoctor = Boolean(token.isDoctor)
+        session.user.isManager = Boolean(token.isManager)
       }
       return session
     },

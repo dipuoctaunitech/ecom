@@ -1,8 +1,8 @@
 @import "tailwindcss";
 
 @theme {
-  --font-display: var(--font-outfit), ui-sans-serif, system-ui, sans-serif;
-  --font-body: var(--font-manrope), ui-sans-serif, system-ui, sans-serif;
+  --font-display: var(--font-bricolage), ui-sans-serif, system-ui, sans-serif;
+  --font-body: var(--font-nunito), ui-sans-serif, system-ui, sans-serif;
 
   --color-ink: var(--ink);
   --color-ink-muted: var(--ink-muted);
@@ -11,36 +11,42 @@
   --color-line: var(--line);
   --color-accent: var(--accent);
 
-  --color-noir: #121110;
-  --color-noir-elevated: #1a1917;
-  --color-noir-line: #2c2a27;
-  --color-noir-muted: #a7a29a;
-  --color-brass: #c8a35a;
-  --color-brass-dark: #a6842f;
+  --color-noir: #14241c;
+  --color-noir-elevated: #1c3226;
+  --color-noir-line: #2f4a3a;
+  --color-noir-muted: #9bb5a6;
+  --color-brass: #e86f4a;
+  --color-brass-dark: #c95533;
   --color-highlight: var(--highlight);
   --color-highlight-dark: var(--highlight-dark);
+  --color-meadow: var(--meadow);
+  --color-sky: var(--sky);
 }
 
 :root {
-  --ink: #0c0c0c;
-  --ink-muted: #5c5c5c;
-  --surface: #f7f6f4;
-  --surface-elevated: #ffffff;
-  --line: #e8e6e3;
-  --accent: #1a1a1a;
-  --highlight: #c8a35a;
-  --highlight-dark: #a6842f;
+  --ink: #14241c;
+  --ink-muted: #3f5a4c;
+  --surface: #eef5f0;
+  --surface-elevated: #fbfdfb;
+  --line: #d5e3da;
+  --accent: #1c3226;
+  --highlight: #e86f4a;
+  --highlight-dark: #c95533;
+  --meadow: #3d8f6a;
+  --sky: #6eb4c8;
 }
 
 .dark {
-  --ink: #f0efe9;
-  --ink-muted: #a7a29a;
-  --surface: #121110;
-  --surface-elevated: #1a1917;
-  --line: #2c2a27;
-  --accent: #e8e6e3;
-  --highlight: #c8a35a;
-  --highlight-dark: #a6842f;
+  --ink: #e8f2ec;
+  --ink-muted: #9bb5a6;
+  --surface: #101a15;
+  --surface-elevated: #18261e;
+  --line: #2a3f34;
+  --accent: #e8f2ec;
+  --highlight: #f08a6a;
+  --highlight-dark: #e86f4a;
+  --meadow: #5cb88a;
+  --sky: #7ec4d6;
   color-scheme: dark;
 }
 
@@ -54,6 +60,38 @@ body {
   background: var(--color-surface);
   -webkit-font-smoothing: antialiased;
   transition: color 0.2s ease, background-color 0.2s ease;
+}
+
+/* Soft meadow wash + faint paw trail — atmosphere, not decoration overload */
+.pet-atmosphere {
+  background-color: var(--color-surface);
+  background-image:
+    radial-gradient(ellipse 80% 50% at 10% -10%, color-mix(in oklab, var(--sky) 22%, transparent), transparent 55%),
+    radial-gradient(ellipse 70% 45% at 95% 5%, color-mix(in oklab, var(--highlight) 12%, transparent), transparent 50%),
+    radial-gradient(ellipse 60% 40% at 50% 100%, color-mix(in oklab, var(--meadow) 10%, transparent), transparent 55%);
+}
+
+.pet-paw-trail {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120' viewBox='0 0 120 120'%3E%3Cg fill='%233d8f6a' fill-opacity='0.06'%3E%3Ccircle cx='48' cy='42' r='7'/%3E%3Ccircle cx='72' cy='42' r='7'/%3E%3Ccircle cx='38' cy='58' r='5.5'/%3E%3Ccircle cx='82' cy='58' r='5.5'/%3E%3Cellipse cx='60' cy='72' rx='14' ry='12'/%3E%3C/g%3E%3C/svg%3E");
+  background-size: 120px 120px;
+}
+
+/* Offers shelf — soft meadow/coral wash behind each discount band */
+.offer-group-shell {
+  border: 1px solid color-mix(in oklab, var(--line) 85%, var(--highlight));
+  background: var(--surface-elevated);
+  box-shadow: 0 18px 40px -28px color-mix(in oklab, var(--ink) 35%, transparent);
+  animation: fade-up 0.65s ease-out both;
+}
+
+.offer-group-banner {
+  background:
+    linear-gradient(
+      135deg,
+      color-mix(in oklab, var(--surface-elevated) 88%, var(--highlight)) 0%,
+      color-mix(in oklab, var(--surface) 70%, var(--meadow)) 55%,
+      var(--surface-elevated) 100%
+    );
 }
 
 @keyframes fade-up {
@@ -76,12 +114,41 @@ body {
   }
 }
 
+@keyframes soft-float {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-6px);
+  }
+}
+
+@keyframes wag {
+  0%,
+  100% {
+    transform: rotate(-8deg);
+  }
+  50% {
+    transform: rotate(8deg);
+  }
+}
+
 .animate-fade-up {
   animation: fade-up 0.7s ease-out both;
 }
 
 .animate-fade-in {
   animation: fade-in 0.9s ease-out both;
+}
+
+.animate-soft-float {
+  animation: soft-float 4.5s ease-in-out infinite;
+}
+
+.animate-wag {
+  animation: wag 1.2s ease-in-out infinite;
+  transform-origin: bottom center;
 }
 
 .delay-100 {

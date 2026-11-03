@@ -6,12 +6,12 @@ import {
   AlertTriangle,
   ExternalLink,
   MapPin,
-  Percent,
-  Tag,
   X,
 } from "lucide-react"
 import { updateSellerProduct, type SellerProduct } from "@/app/actions/seller"
 import { resolveProductImageUrl } from "@/lib/images"
+import { formatINR } from "@/lib/money"
+import { loyaltyPointsPercentOfPrice } from "@/lib/product-meta"
 
 function stockStatus(stock: number): {
   label: string
@@ -86,6 +86,55 @@ function computeDiscountPercent(product: SellerProduct): number | null {
   )
 }
 
+function computeDiscountAmount(product: SellerProduct): number | null {
+  if (
+    product.compareAtPrice == null ||
+    product.compareAtPrice <= product.price
+  )
+    return null
+  return Math.round((product.compareAtPrice - product.price) * 100) / 100
+}
+
+function initialDiscountDraft(product: SellerProduct): DiscountDraft {
+  const percent = computeDiscountPercent(product)
+  return {
+    mode: "percentage",
+    value: percent != null ? String(percent) : "",
+  }
+}
+
+function compareAtFromDiscount(
+  price: number,
+  mode: "percentage" | "fixed",
+  value: string
+): { compareAtPrice: number | null; error?: string } {
+  const trimmed = value.trim()
+  if (!trimmed) {
+    return { compareAtPrice: null }
+  }
+
+  const num = parseFloat(trimmed)
+  if (Number.isNaN(num) || num <= 0) {
+    return { compareAtPrice: null, error: "Discount must be a positive number." }
+  }
+
+  if (mode === "percentage") {
+    if (num >= 100) {
+      return {
+        compareAtPrice: null,
+        error: "Discount percentage must be less than 100%.",
+      }
+    }
+    return {
+      compareAtPrice: Math.round((price / (1 - num / 100)) * 100) / 100,
+    }
+  }
+
+  return {
+    compareAtPrice: Math.round((price + num) * 100) / 100,
+  }
+}
+
 function isVideoUrl(url: string): boolean {
   return /\.(mp4|webm|ogg|mov)(\?|$)/i.test(url)
 }
@@ -97,21 +146,28 @@ export default function SellerProductList({
 }) {
   const [products, setProducts] = useState(initialProducts)
   const [expandedId, setExpandedId] = useState<string | null>(null)
-  const [expandedType, setExpandedType] = useState<"location" | "discount">(
-    "location"
-  )
   const [locationDrafts, setLocationDrafts] = useState<
     Record<string, LocationDraft>
   >({})
   const [discountDrafts, setDiscountDrafts] = useState<
     Record<string, DiscountDraft>
-  >({})
+  >(() =>
+    Object.fromEntries(
+      initialProducts.map((product) => [
+        product.id,
+        initialDiscountDraft(product),
+      ])
+    )
+  )
   const [isPending, startTransition] = useTransition()
   const [error, setError] = useState("")
 
+  const getDiscountDraft = (product: SellerProduct): DiscountDraft =>
+    discountDrafts[product.id] ?? initialDiscountDraft(product)
+
   const handlePriceStockBlur = (
     productId: string,
-    field: "price" | "stock",
+    field: "price" | "stock" | "loyaltyPoints",
     value: string
   ) => {
     const product = products.find((p) => p.id === productId)
@@ -126,10 +182,33 @@ export default function SellerProductList({
     setError("")
     startTransition(async () => {
       try {
-        await updateSellerProduct(productId, { [field]: parsed })
+        // Keep an existing discount %/amount aligned when price changes.
+        let compareAtPrice: number | undefined
+        if (field === "price") {
+          const draft = discountDrafts[productId]
+          if (draft?.value.trim()) {
+            const next = compareAtFromDiscount(parsed, draft.mode, draft.value)
+            if (next.error) {
+              setError(next.error)
+              return
+            }
+            compareAtPrice = next.compareAtPrice ?? undefined
+          }
+        }
+
+        await updateSellerProduct(productId, {
+          [field]: parsed,
+          ...(compareAtPrice !== undefined && { compareAtPrice }),
+        })
         setProducts((current) =>
           current.map((p) =>
-            p.id === productId ? { ...p, [field]: parsed } : p
+            p.id === productId
+              ? {
+                  ...p,
+                  [field]: parsed,
+                  ...(compareAtPrice !== undefined && { compareAtPrice }),
+                }
+              : p
           )
         )
       } catch (err) {
@@ -141,32 +220,38 @@ export default function SellerProductList({
   }
 
   const toggleLocation = (product: SellerProduct) => {
-    if (expandedId === product.id && expandedType === "location") {
+    if (expandedId === product.id) {
       setExpandedId(null)
       return
     }
     setExpandedId(product.id)
-    setExpandedType("location")
     setLocationDrafts((current) => ({
       ...current,
       [product.id]: locationDraft(product),
     }))
   }
 
-  const toggleDiscount = (product: SellerProduct) => {
-    if (expandedId === product.id && expandedType === "discount") {
-      setExpandedId(null)
-      return
-    }
-    setExpandedId(product.id)
-    setExpandedType("discount")
-    const existing = computeDiscountPercent(product)
-    setDiscountDrafts((current) => ({
-      ...current,
-      [product.id]: {
-        mode: "percentage",
-        value: existing != null ? String(existing) : "",
-      },
+  const setDiscountMode = (
+    product: SellerProduct,
+    mode: "percentage" | "fixed"
+  ) => {
+    const current = getDiscountDraft(product)
+    if (current.mode === mode) return
+
+    const amount = computeDiscountAmount(product)
+    const percent = computeDiscountPercent(product)
+    const nextValue =
+      mode === "percentage"
+        ? percent != null
+          ? String(percent)
+          : current.value
+        : amount != null
+          ? String(amount)
+          : current.value
+
+    setDiscountDrafts((drafts) => ({
+      ...drafts,
+      [product.id]: { mode, value: nextValue },
     }))
   }
 
@@ -175,23 +260,19 @@ export default function SellerProductList({
     const draft = discountDrafts[productId]
     if (!product || !draft) return
 
-    const val = draft.value.trim()
+    const next = compareAtFromDiscount(product.price, draft.mode, draft.value)
+    if (next.error) {
+      setError(next.error)
+      return
+    }
 
-    let compareAtPrice: number | null = null
-
-    if (val && parseFloat(val) > 0) {
-      const num = parseFloat(val)
-      if (draft.mode === "percentage") {
-        if (num >= 100) {
-          setError("Discount percentage must be less than 100%.")
-          return
-        }
-        compareAtPrice =
-          Math.round((product.price / (1 - num / 100)) * 100) / 100
-      } else {
-        compareAtPrice =
-          Math.round((product.price + num) * 100) / 100
-      }
+    const compareAtPrice = next.compareAtPrice
+    if (product.compareAtPrice === compareAtPrice) return
+    if (
+      product.compareAtPrice == null &&
+      compareAtPrice == null
+    ) {
+      return
     }
 
     setError("")
@@ -203,7 +284,28 @@ export default function SellerProductList({
             p.id === productId ? { ...p, compareAtPrice } : p
           )
         )
-        setExpandedId(null)
+        setDiscountDrafts((drafts) => ({
+          ...drafts,
+          [productId]:
+            compareAtPrice == null
+              ? { mode: draft.mode, value: "" }
+              : draft.mode === "percentage"
+                ? {
+                    mode: "percentage",
+                    value: String(
+                      Math.round(
+                        ((compareAtPrice - product.price) / compareAtPrice) *
+                          100
+                      )
+                    ),
+                  }
+                : {
+                    mode: "fixed",
+                    value: String(
+                      Math.round((compareAtPrice - product.price) * 100) / 100
+                    ),
+                  },
+        }))
       } catch (err) {
         setError(
           err instanceof Error ? err.message : "Failed to update discount"
@@ -222,7 +324,13 @@ export default function SellerProductList({
             p.id === productId ? { ...p, compareAtPrice: null } : p
           )
         )
-        setExpandedId(null)
+        setDiscountDrafts((drafts) => ({
+          ...drafts,
+          [productId]: {
+            mode: drafts[productId]?.mode ?? "percentage",
+            value: "",
+          },
+        }))
       } catch (err) {
         setError(
           err instanceof Error ? err.message : "Failed to remove discount"
@@ -298,7 +406,7 @@ export default function SellerProductList({
             Revenue
           </p>
           <p className="mt-1 font-display text-xl font-medium tabular-nums text-ink">
-            ${totalRevenue.toFixed(2)}
+            {formatINR(totalRevenue)}
           </p>
         </div>
         <div className="border border-line bg-surface px-4 py-3">
@@ -335,13 +443,16 @@ export default function SellerProductList({
                 Status
               </th>
               <th className="px-5 py-3 text-left text-xs font-medium uppercase tracking-[0.12em] text-ink-muted">
-                Price ($)
+                Price (₹)
               </th>
               <th className="px-5 py-3 text-left text-xs font-medium uppercase tracking-[0.12em] text-ink-muted">
                 Discount
               </th>
               <th className="px-5 py-3 text-left text-xs font-medium uppercase tracking-[0.12em] text-ink-muted">
-                Stock
+                Quantity
+              </th>
+              <th className="px-5 py-3 text-left text-xs font-medium uppercase tracking-[0.12em] text-ink-muted">
+                Loyalty
               </th>
               <th className="px-5 py-3 text-left text-xs font-medium uppercase tracking-[0.12em] text-ink-muted">
                 Sold
@@ -361,7 +472,7 @@ export default function SellerProductList({
             {products.length === 0 ? (
               <tr>
                 <td
-                  colSpan={9}
+                  colSpan={10}
                   className="px-5 py-16 text-center text-sm text-ink-muted"
                 >
                   No products listed yet. Add your first product to get started.
@@ -370,11 +481,9 @@ export default function SellerProductList({
             ) : (
               products.map((product) => {
                 const discountPct = computeDiscountPercent(product)
+                const discountDraft = getDiscountDraft(product)
                 const status = stockStatus(product.stock)
-                const isDiscountExpanded =
-                  expandedId === product.id && expandedType === "discount"
-                const isLocationExpanded =
-                  expandedId === product.id && expandedType === "location"
+                const isLocationExpanded = expandedId === product.id
                 const previewUrl =
                   product.images.find((url) => !isVideoUrl(url)) ??
                   product.images[0] ??
@@ -413,18 +522,47 @@ export default function SellerProductList({
                               {product.title}
                             </div>
                             <div className="mt-0.5 text-xs text-ink-muted">
-                              Listed {formatListedDate(product.createdAt)}
-                              {product.category
-                                ? ` · ${product.category.name}`
-                                : ""}
+                              {[
+                                product.brand || null,
+                                product.animals.length > 0
+                                  ? product.animals.join(", ")
+                                  : null,
+                                product.categories.length > 0
+                                  ? product.categories
+                                      .map((category) => category.name)
+                                      .join(", ")
+                                  : null,
+                              ]
+                                .filter(Boolean)
+                                .join(" · ")}
                             </div>
+                            <div className="mt-0.5 text-xs text-ink-muted">
+                              Listed {formatListedDate(product.createdAt)}
+                            </div>
+                            {product.tags.length > 0 && (
+                              <div className="mt-1 flex flex-wrap gap-1">
+                                {product.tags.slice(0, 4).map((tag) => (
+                                  <span
+                                    key={tag}
+                                    className="bg-surface px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-ink-muted ring-1 ring-line"
+                                  >
+                                    {tag}
+                                  </span>
+                                ))}
+                                {product.tags.length > 4 && (
+                                  <span className="text-[10px] text-ink-muted">
+                                    +{product.tags.length - 4}
+                                  </span>
+                                )}
+                              </div>
+                            )}
                             {product.stock > 0 && product.stock <= 5 && (
                               <div className="mt-1 flex items-center gap-1 text-xs text-amber-700">
                                 <AlertTriangle
                                   className="h-3 w-3"
                                   strokeWidth={1.75}
                                 />
-                                Low stock
+                                Low quantity
                               </div>
                             )}
                           </div>
@@ -455,27 +593,91 @@ export default function SellerProductList({
                         />
                       </td>
                       <td className="px-5 py-4">
-                        <button
-                          type="button"
-                          onClick={() => toggleDiscount(product)}
-                          className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium uppercase tracking-wide ring-1 transition-colors ${
-                            discountPct != null
-                              ? "bg-emerald-50 text-emerald-800 ring-emerald-200 hover:bg-emerald-100"
-                              : "bg-surface text-ink-muted ring-line hover:bg-surface-elevated hover:text-ink"
-                          }`}
-                        >
-                          {discountPct != null ? (
-                            <>
-                              <Tag className="h-3 w-3" strokeWidth={1.75} />
-                              {discountPct}% off
-                            </>
-                          ) : (
-                            <>
-                              <Percent className="h-3 w-3" strokeWidth={1.75} />
-                              Add offer
-                            </>
-                          )}
-                        </button>
+                        <div className="flex min-w-[150px] flex-col gap-1.5">
+                          <div className="flex items-center gap-1">
+                            <div className="flex shrink-0 ring-1 ring-line">
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setDiscountMode(product, "percentage")
+                                }
+                                disabled={isPending}
+                                className={`px-2 py-1.5 text-[10px] font-medium uppercase tracking-wide transition-colors disabled:opacity-50 ${
+                                  discountDraft.mode === "percentage"
+                                    ? "bg-ink text-white"
+                                    : "bg-surface-elevated text-ink-muted hover:text-ink"
+                                }`}
+                                aria-label="Edit as percent off"
+                              >
+                                %
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setDiscountMode(product, "fixed")}
+                                disabled={isPending}
+                                className={`px-2 py-1.5 text-[10px] font-medium uppercase tracking-wide transition-colors disabled:opacity-50 ${
+                                  discountDraft.mode === "fixed"
+                                    ? "bg-ink text-white"
+                                    : "bg-surface-elevated text-ink-muted hover:text-ink"
+                                }`}
+                                aria-label="Edit as amount off"
+                              >
+                                ₹
+                              </button>
+                            </div>
+                            <input
+                              type="number"
+                              step="0.01"
+                              min="0"
+                              max={
+                                discountDraft.mode === "percentage"
+                                  ? "99"
+                                  : undefined
+                              }
+                              value={discountDraft.value}
+                              onChange={(e) =>
+                                setDiscountDrafts((drafts) => ({
+                                  ...drafts,
+                                  [product.id]: {
+                                    ...getDiscountDraft(product),
+                                    value: e.target.value,
+                                  },
+                                }))
+                              }
+                              onBlur={() => saveDiscount(product.id)}
+                              disabled={isPending}
+                              placeholder={
+                                discountDraft.mode === "percentage" ? "0" : "0.00"
+                              }
+                              className="w-16 border border-line bg-surface-elevated px-2 py-1.5 text-sm tabular-nums focus:border-ink focus:outline-none disabled:opacity-50"
+                            />
+                            {discountPct != null && (
+                              <button
+                                type="button"
+                                onClick={() => removeDiscount(product.id)}
+                                disabled={isPending}
+                                className="text-ink-muted transition-colors hover:text-red-700 disabled:opacity-50"
+                                aria-label="Remove discount"
+                              >
+                                <X className="h-3.5 w-3.5" strokeWidth={2} />
+                              </button>
+                            )}
+                          </div>
+                          <p className="text-[11px] tabular-nums text-ink-muted">
+                            {discountPct != null ? (
+                              <>
+                                <span className="text-emerald-800">
+                                  {discountPct}% off
+                                </span>
+                                {product.compareAtPrice != null && (
+                                  <> · was {formatINR(product.compareAtPrice)}</>
+                                )}
+                              </>
+                            ) : (
+                              "No offer"
+                            )}
+                          </p>
+                        </div>
                       </td>
                       <td className="px-5 py-4">
                         <input
@@ -497,11 +699,38 @@ export default function SellerProductList({
                           }`}
                         />
                       </td>
+                      <td className="px-5 py-4">
+                        <input
+                          type="number"
+                          min="0"
+                          step="1"
+                          defaultValue={product.loyaltyPoints}
+                          key={`${product.id}-loyalty-${product.loyaltyPoints}`}
+                          onBlur={(e) =>
+                            handlePriceStockBlur(
+                              product.id,
+                              "loyaltyPoints",
+                              e.target.value
+                            )
+                          }
+                          disabled={isPending}
+                          className="w-20 border border-line bg-surface-elevated px-2 py-1.5 text-sm tabular-nums focus:border-ink focus:outline-none disabled:opacity-50"
+                        />
+                        <p className="mt-1 text-[11px] tabular-nums text-ink-muted">
+                          {(() => {
+                            const pct = loyaltyPointsPercentOfPrice(
+                              product.loyaltyPoints,
+                              product.price
+                            )
+                            return pct == null ? "—" : `${pct}% of price`
+                          })()}
+                        </p>
+                      </td>
                       <td className="px-5 py-4 text-sm tabular-nums text-ink">
                         {product.unitsSold}
                       </td>
                       <td className="px-5 py-4 text-sm tabular-nums text-ink">
-                        ${product.revenue.toFixed(2)}
+                        {formatINR(product.revenue)}
                       </td>
                       <td className="px-5 py-4">
                         <button
@@ -533,172 +762,10 @@ export default function SellerProductList({
                       </td>
                     </tr>
 
-                    {/* Discount panel */}
-                    {isDiscountExpanded && discountDrafts[product.id] && (
-                      <tr>
-                        <td colSpan={9} className="bg-surface px-5 py-5">
-                          <div className="mx-auto max-w-lg">
-                            <h4 className="font-display text-sm font-medium text-ink">
-                              Set Offer Discount for{" "}
-                              <span className="text-ink-muted">
-                                {product.title}
-                              </span>
-                            </h4>
-                            <p className="mt-1 text-xs text-ink-muted">
-                              Current price: ${product.price.toFixed(2)}
-                              {product.compareAtPrice != null &&
-                                product.compareAtPrice > product.price && (
-                                  <>
-                                    {" "}
-                                    · Was: $
-                                    {product.compareAtPrice.toFixed(2)}
-                                  </>
-                                )}
-                            </p>
-
-                            <div className="mt-4 flex items-end gap-3">
-                              <div className="flex rounded ring-1 ring-line">
-                                <button
-                                  type="button"
-                                  onClick={() =>
-                                    setDiscountDrafts((c) => ({
-                                      ...c,
-                                      [product.id]: {
-                                        ...c[product.id],
-                                        mode: "percentage",
-                                      },
-                                    }))
-                                  }
-                                  className={`px-3 py-2 text-xs font-medium transition-colors ${
-                                    discountDrafts[product.id].mode ===
-                                    "percentage"
-                                      ? "bg-ink text-white"
-                                      : "bg-surface-elevated text-ink-muted hover:text-ink"
-                                  }`}
-                                >
-                                  % Off
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() =>
-                                    setDiscountDrafts((c) => ({
-                                      ...c,
-                                      [product.id]: {
-                                        ...c[product.id],
-                                        mode: "fixed",
-                                      },
-                                    }))
-                                  }
-                                  className={`px-3 py-2 text-xs font-medium transition-colors ${
-                                    discountDrafts[product.id].mode === "fixed"
-                                      ? "bg-ink text-white"
-                                      : "bg-surface-elevated text-ink-muted hover:text-ink"
-                                  }`}
-                                >
-                                  $ Off
-                                </button>
-                              </div>
-
-                              <div className="flex-1">
-                                <label className="block text-xs font-medium uppercase tracking-[0.12em] text-ink-muted">
-                                  {discountDrafts[product.id].mode ===
-                                  "percentage"
-                                    ? "Discount %"
-                                    : "Amount off ($)"}
-                                </label>
-                                <input
-                                  type="number"
-                                  step="0.01"
-                                  min="0"
-                                  max={
-                                    discountDrafts[product.id].mode ===
-                                    "percentage"
-                                      ? "99"
-                                      : undefined
-                                  }
-                                  value={discountDrafts[product.id].value}
-                                  onChange={(e) =>
-                                    setDiscountDrafts((c) => ({
-                                      ...c,
-                                      [product.id]: {
-                                        ...c[product.id],
-                                        value: e.target.value,
-                                      },
-                                    }))
-                                  }
-                                  placeholder={
-                                    discountDrafts[product.id].mode ===
-                                    "percentage"
-                                      ? "e.g. 20"
-                                      : "e.g. 10.00"
-                                  }
-                                  className="mt-2 w-full border border-line bg-surface-elevated px-3 py-2 text-sm tabular-nums focus:border-ink focus:outline-none"
-                                />
-                              </div>
-
-                              {discountDrafts[product.id].value.trim() && (
-                                <p className="shrink-0 pb-2 text-xs text-ink-muted">
-                                  Customers see{" "}
-                                  <span className="font-medium text-ink">
-                                    $
-                                    {(() => {
-                                      const v = parseFloat(
-                                        discountDrafts[product.id].value
-                                      )
-                                      if (Number.isNaN(v) || v <= 0) return "—"
-                                      if (
-                                        discountDrafts[product.id].mode ===
-                                        "percentage"
-                                      ) {
-                                        return (
-                                          product.price / (1 - v / 100)
-                                        ).toFixed(2)
-                                      }
-                                      return (product.price + v).toFixed(2)
-                                    })()}
-                                  </span>{" "}
-                                  crossed out
-                                </p>
-                              )}
-                            </div>
-
-                            <div className="mt-5 flex gap-2">
-                              <button
-                                type="button"
-                                onClick={() => saveDiscount(product.id)}
-                                disabled={isPending}
-                                className="border border-ink bg-ink px-4 py-2 text-xs font-medium uppercase tracking-wide text-white transition-colors hover:bg-neutral-800 disabled:opacity-50"
-                              >
-                                Apply Discount
-                              </button>
-                              {discountPct != null && (
-                                <button
-                                  type="button"
-                                  onClick={() => removeDiscount(product.id)}
-                                  disabled={isPending}
-                                  className="inline-flex items-center gap-1.5 border border-red-200 bg-red-50 px-4 py-2 text-xs font-medium uppercase tracking-wide text-red-700 transition-colors hover:bg-red-100 disabled:opacity-50"
-                                >
-                                  <X className="h-3 w-3" strokeWidth={2} />
-                                  Remove
-                                </button>
-                              )}
-                              <button
-                                type="button"
-                                onClick={() => setExpandedId(null)}
-                                className="border border-line bg-surface px-4 py-2 text-xs font-medium uppercase tracking-wide text-ink transition-colors hover:bg-surface-elevated"
-                              >
-                                Cancel
-                              </button>
-                            </div>
-                          </div>
-                        </td>
-                      </tr>
-                    )}
-
                     {/* Location panel */}
                     {isLocationExpanded && locationDrafts[product.id] && (
                       <tr>
-                        <td colSpan={9} className="bg-surface px-5 py-4">
+                        <td colSpan={10} className="bg-surface px-5 py-4">
                           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                             <div>
                               <label className="block text-xs font-medium uppercase tracking-[0.12em] text-ink-muted">

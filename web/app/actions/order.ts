@@ -1,11 +1,79 @@
 "use server"
 
 import { revalidatePath } from "next/cache"
-import { requireUserSession } from "@/lib/auth-guards"
+import { isValidReceiptUrl, requireUserSession } from "@/lib/auth-guards"
 import { prisma } from "@/lib/prisma"
 import type { OrderStatus } from "@prisma/client"
 import { toProduct } from "@/lib/products"
 import type { Product } from "@shared/types"
+import { resolveProductImageUrl } from "@/lib/images"
+import { assertBuyerCanUploadReceipt } from "@/lib/receipts"
+import { setOrderStatus } from "@/lib/orders"
+export type CheckoutSellerInfo = {
+  productId: string
+  sellerId: string
+  sellerName: string
+  qrCodeUrl: string | null
+  gstNumber: string | null
+}
+
+export type CheckoutBuyerInfo = {
+  gstNumber: string | null
+}
+
+export async function getCheckoutBuyerInfo(): Promise<CheckoutBuyerInfo> {
+  const session = await requireUserSession()
+  if (!session?.user?.id) {
+    return { gstNumber: null }
+  }
+
+  const user = await prisma.user.findUnique({
+    where: { id: session.user.id },
+    select: { gstNumber: true },
+  })
+
+  return { gstNumber: user?.gstNumber ?? null }
+}
+
+export async function getCheckoutSellerInfo(
+  productIds: string[]
+): Promise<CheckoutSellerInfo[]> {
+  const session = await requireUserSession()
+  if (!session?.user?.id) {
+    throw new Error("Sign in required to view seller payment details.")
+  }
+
+  const uniqueIds = [...new Set(productIds)].slice(0, 50)
+  if (uniqueIds.length === 0) return []
+
+  const products = await prisma.product.findMany({
+    where: { id: { in: uniqueIds } },
+    select: {
+      id: true,
+      sellerId: true,
+      seller: {
+        select: {
+          name: true,
+          email: true,
+          sellerSettings: { select: { qrCodeUrl: true, gstNumber: true } },
+        },
+      },
+    },
+  })
+
+  return products.map((product) => ({
+    productId: product.id,
+    sellerId: product.sellerId,
+    sellerName:
+      product.seller.name?.trim() ||
+      product.seller.email?.split("@")[0] ||
+      "Seller",
+    qrCodeUrl: product.seller.sellerSettings?.qrCodeUrl
+      ? resolveProductImageUrl(product.seller.sellerSettings.qrCodeUrl)
+      : null,
+    gstNumber: product.seller.sellerSettings?.gstNumber ?? null,
+  }))
+}
 
 export type BuyerOrderItem = {
   id: string
@@ -14,12 +82,22 @@ export type BuyerOrderItem = {
   product: Product
 }
 
+export type BuyerOrderPayment = {
+  sellerId: string
+  sellerName: string
+  qrCodeUrl: string | null
+  receiptUrl: string | null
+  paymentReceived: boolean
+  paymentMarkedByRole: "SELLER" | "DELIVERY" | "ADMIN" | null
+}
+
 export type BuyerOrder = {
   id: string
   status: OrderStatus
   totalAmount: number
   createdAt: string
   items: BuyerOrderItem[]
+  payments: BuyerOrderPayment[]
 }
 
 export async function getBuyerOrders(): Promise<BuyerOrder[]> {
@@ -36,8 +114,19 @@ export async function getBuyerOrders(): Promise<BuyerOrder[]> {
         include: {
           product: {
             include: {
-              category: { select: { name: true, slug: true } },
-              seller: { select: { name: true } },
+              categories: { select: { name: true, slug: true } },
+              seller: { select: { id: true, name: true, email: true } },
+            },
+          },
+        },
+      },
+      payments: {
+        include: {
+          seller: {
+            select: {
+              name: true,
+              email: true,
+              sellerSettings: { select: { qrCodeUrl: true } },
             },
           },
         },
@@ -55,6 +144,21 @@ export async function getBuyerOrders(): Promise<BuyerOrder[]> {
       quantity: item.quantity,
       priceAtPurchase: Number(item.priceAtPurchase),
       product: toProduct(item.product),
+    })),
+    payments: order.payments.map((payment) => ({
+      sellerId: payment.sellerId,
+      sellerName:
+        payment.seller.name?.trim() ||
+        payment.seller.email?.split("@")[0] ||
+        "Seller",
+      qrCodeUrl: payment.seller.sellerSettings?.qrCodeUrl
+        ? resolveProductImageUrl(payment.seller.sellerSettings.qrCodeUrl)
+        : null,
+      receiptUrl: payment.receiptUrl
+        ? resolveProductImageUrl(payment.receiptUrl)
+        : null,
+      paymentReceived: payment.paymentReceived,
+      paymentMarkedByRole: payment.paymentMarkedByRole,
     })),
   }))
 }
@@ -145,7 +249,7 @@ export async function placeOrder(
       }
     }
 
-    return tx.order.create({
+    const created = await tx.order.create({
       data: {
         buyerId: session.user.id,
         status: "PENDING",
@@ -159,12 +263,113 @@ export async function placeOrder(
         },
       },
     })
+
+    const sellerIds = [...new Set(products.map((product) => product.sellerId))]
+
+    await tx.orderPayment.createMany({
+      data: sellerIds.map((sellerId) => ({
+        orderId: created.id,
+        sellerId,
+        receiptUrl: null,
+      })),
+    })
+
+    return created
   })
 
   revalidatePath("/orders")
+  revalidatePath("/account")
   revalidatePath("/seller")
   revalidatePath("/admin")
+  revalidatePath("/delivery")
+  revalidatePath("/store")
   revalidatePath("/")
 
   return { success: true, orderId: order.id }
+}
+
+export async function confirmBuyerReceived(orderId: string) {
+  const session = await requireUserSession()
+  if (!session?.user?.id) {
+    throw new Error("Sign in to confirm you received this order.")
+  }
+
+  const order = await prisma.order.findFirst({
+    where: { id: orderId, buyerId: session.user.id },
+    select: { status: true },
+  })
+
+  if (!order) {
+    throw new Error("Order not found.")
+  }
+
+  if (order.status === "DELIVERED") {
+    return { success: true as const }
+  }
+
+  if (order.status === "RETURNED" || order.status === "REFUNDED") {
+    throw new Error("This order cannot be marked received.")
+  }
+
+  await setOrderStatus(orderId, "DELIVERED")
+
+  revalidatePath("/orders")
+  revalidatePath("/account")
+  revalidatePath("/seller")
+  revalidatePath("/admin")
+  revalidatePath("/delivery")
+  revalidatePath("/store")
+  return { success: true as const }
+}
+
+export async function attachOrderReceipt(
+  orderId: string,
+  sellerId: string,
+  receiptUrl: string
+) {
+  const session = await requireUserSession()
+  if (!session?.user?.id) {
+    throw new Error("Sign in to upload a payment receipt.")
+  }
+
+  await assertBuyerCanUploadReceipt(session.user.id, orderId, sellerId)
+
+  if (!isValidReceiptUrl(receiptUrl, session.user.id)) {
+    throw new Error("Payment receipts must be uploaded through the app.")
+  }
+
+  await prisma.orderPayment.update({
+    where: { orderId_sellerId: { orderId, sellerId } },
+    data: { receiptUrl },
+  })
+
+  revalidatePath("/orders")
+  revalidatePath("/account")
+  revalidatePath("/seller")
+  revalidatePath("/admin")
+  revalidatePath("/delivery")
+  revalidatePath("/store")
+  return { success: true as const, receiptUrl }
+}
+
+export async function removeOrderReceipt(orderId: string, sellerId: string) {
+  const session = await requireUserSession()
+  if (!session?.user?.id) {
+    throw new Error("Sign in required.")
+  }
+
+  await assertBuyerCanUploadReceipt(session.user.id, orderId, sellerId)
+
+  await prisma.orderPayment.update({
+    where: { orderId_sellerId: { orderId, sellerId } },
+    data: { receiptUrl: null },
+  })
+
+  revalidatePath("/orders")
+  revalidatePath("/account")
+  revalidatePath("/seller")
+  revalidatePath("/admin")
+  revalidatePath("/delivery")
+  revalidatePath("/store")
+  return { success: true as const }
 }

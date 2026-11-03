@@ -6,6 +6,12 @@ declare module "next-auth" {
     user: {
       id: string
       role: Role
+      /** Linked active StaffMember with type GROOMER. */
+      isGroomer?: boolean
+      /** Linked active StaffMember with type DOCTOR. */
+      isDoctor?: boolean
+      /** Active store membership with role MANAGER. */
+      isManager?: boolean
     } & DefaultSession["user"]
   }
 
@@ -18,5 +24,8 @@ declare module "next-auth/jwt" {
   interface JWT {
     id: string
     role: Role
+    isGroomer?: boolean
+    isDoctor?: boolean
+    isManager?: boolean
   }
 }

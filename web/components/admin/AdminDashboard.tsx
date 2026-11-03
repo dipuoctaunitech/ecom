@@ -6,44 +6,83 @@ import {
   ArrowLeft,
   BarChart3,
   LayoutDashboard,
+  LayoutGrid,
+  CalendarDays,
+  Clock3,
+  Bike,
   Megaphone,
   Package,
+  Percent,
+  Scissors,
   Settings,
   ShoppingBag,
+  Sparkles,
+  Stethoscope,
+  Store,
+  Tags,
   Users,
 } from "lucide-react"
-import { Role } from "@prisma/client"
 import type {
   AdminAnalytics,
+  AdminBuyerRow,
   AdminCategory,
   AdminCustomer,
+  AdminDeliveryBoyRow,
   AdminDiscountCode,
   AdminProduct,
+  AdminSellerRow,
+  AdminStaffRow,
   AdminSupportTicket,
   PaginatedOrders,
   StoreSettingsData,
 } from "@/app/actions/admin"
+import type { StoreCategory } from "@/app/actions/store-categories"
+import type {
+  StoreCollection,
+  StoreCollectionCategoryOption,
+} from "@/app/actions/store-collections"
+import type {
+  NewArrivalManagedItem,
+  NewArrivalProductOption,
+} from "@/app/actions/store-new-arrivals"
+import type { StoreOfferGroup } from "@/app/actions/store-offer-groups"
+import type { ManagedService } from "@/app/actions/store-services"
+import type { TimeFrameBoard } from "@/app/actions/store-timeframes"
+import type { StoreRosterBoard } from "@/app/actions/store-roster"
 import AdminOverview from "@/components/admin/AdminOverview"
 import AdminOrderTable from "@/components/admin/AdminOrderTable"
 import AdminProductTable from "@/components/admin/AdminProductTable"
+import StoreCategoriesPanel from "@/components/store/StoreCategoriesPanel"
+import StoreCollectionsPanel from "@/components/store/StoreCollectionsPanel"
+import StoreNewArrivalsPanel from "@/components/store/StoreNewArrivalsPanel"
+import StoreOfferGroupsPanel from "@/components/store/StoreOfferGroupsPanel"
+import StoreServicesPanel from "@/components/store/StoreServicesPanel"
+import StoreTimeFramesPanel from "@/components/store/StoreTimeFramesPanel"
+import StoreRosterPanel from "@/components/store/StoreRosterPanel"
 import AdminCustomers from "@/components/admin/AdminCustomers"
 import AdminMarketing from "@/components/admin/AdminMarketing"
+import AdminSellers from "@/components/admin/AdminSellers"
+import AdminDelivery from "@/components/admin/AdminDelivery"
+import AdminStaff from "@/components/admin/AdminStaff"
 import AdminSettings from "@/components/admin/AdminSettings"
 
 type AdminTab =
   | "overview"
+  | "sellers"
+  | "delivery"
+  | "staff"
   | "products"
+  | "categories"
+  | "collections"
+  | "new-arrivals"
+  | "offers"
+  | "services"
+  | "slots"
+  | "roster"
   | "orders"
   | "customers"
   | "marketing"
   | "settings"
-
-type User = {
-  id: string
-  name: string | null
-  email: string | null
-  role: Role
-}
 
 const NAV_ITEMS: {
   id: AdminTab
@@ -56,9 +95,59 @@ const NAV_ITEMS: {
     icon: <LayoutDashboard className="h-4 w-4" strokeWidth={1.75} />,
   },
   {
+    id: "sellers",
+    label: "Sellers",
+    icon: <Store className="h-4 w-4" strokeWidth={1.75} />,
+  },
+  {
+    id: "delivery",
+    label: "Delivery",
+    icon: <Bike className="h-4 w-4" strokeWidth={1.75} />,
+  },
+  {
+    id: "staff",
+    label: "Groomers & clinic",
+    icon: <Stethoscope className="h-4 w-4" strokeWidth={1.75} />,
+  },
+  {
     id: "products",
     label: "Products",
     icon: <ShoppingBag className="h-4 w-4" strokeWidth={1.75} />,
+  },
+  {
+    id: "categories",
+    label: "Categories",
+    icon: <Tags className="h-4 w-4" strokeWidth={1.75} />,
+  },
+  {
+    id: "collections",
+    label: "Collections",
+    icon: <LayoutGrid className="h-4 w-4" strokeWidth={1.75} />,
+  },
+  {
+    id: "new-arrivals",
+    label: "New Arrivals",
+    icon: <Sparkles className="h-4 w-4" strokeWidth={1.75} />,
+  },
+  {
+    id: "offers",
+    label: "Offers",
+    icon: <Percent className="h-4 w-4" strokeWidth={1.75} />,
+  },
+  {
+    id: "services",
+    label: "Services",
+    icon: <Scissors className="h-4 w-4" strokeWidth={1.75} />,
+  },
+  {
+    id: "slots",
+    label: "Time frames",
+    icon: <Clock3 className="h-4 w-4" strokeWidth={1.75} />,
+  },
+  {
+    id: "roster",
+    label: "Roster",
+    icon: <CalendarDays className="h-4 w-4" strokeWidth={1.75} />,
   },
   {
     id: "orders",
@@ -83,21 +172,47 @@ const NAV_ITEMS: {
 ]
 
 export default function AdminDashboard({
-  users,
+  sellers,
+  buyers,
+  deliveryBoys,
+  staff,
   analytics,
   initialOrders,
   products,
   categories,
+  storeCategories,
+  storeCollections,
+  collectionCategoryOptions,
+  newArrivalItems,
+  newArrivalOptions,
+  newArrivalLimit,
+  offerGroups,
+  managedServices,
+  timeFrameBoard,
+  rosterBoard,
   customers,
   tickets,
   discountCodes,
   storeSettings,
 }: {
-  users: User[]
+  sellers: AdminSellerRow[]
+  buyers: AdminBuyerRow[]
+  deliveryBoys: AdminDeliveryBoyRow[]
+  staff: AdminStaffRow[]
   analytics: AdminAnalytics
   initialOrders: PaginatedOrders
   products: AdminProduct[]
   categories: AdminCategory[]
+  storeCategories: StoreCategory[]
+  storeCollections: StoreCollection[]
+  collectionCategoryOptions: StoreCollectionCategoryOption[]
+  newArrivalItems: NewArrivalManagedItem[]
+  newArrivalOptions: NewArrivalProductOption[]
+  newArrivalLimit: number
+  offerGroups: StoreOfferGroup[]
+  managedServices: ManagedService[]
+  timeFrameBoard: TimeFrameBoard
+  rosterBoard: StoreRosterBoard
   customers: AdminCustomer[]
   tickets: AdminSupportTicket[]
   discountCodes: AdminDiscountCode[]
@@ -123,7 +238,7 @@ export default function AdminDashboard({
               </div>
               <div>
                 <p className="font-display text-xs font-medium uppercase tracking-[0.18em] text-ink-muted">
-                  FORMA Admin
+                  namma pets Club Admin
                 </p>
                 <h1 className="font-display text-xl font-medium tracking-tight text-ink">
                   Dashboard
@@ -163,6 +278,16 @@ export default function AdminDashboard({
             <AdminOverview analytics={analytics} />
           )}
 
+          {activeTab === "sellers" && (
+            <AdminSellers sellers={sellers} buyers={buyers} />
+          )}
+
+          {activeTab === "delivery" && (
+            <AdminDelivery deliveryBoys={deliveryBoys} />
+          )}
+
+          {activeTab === "staff" && <AdminStaff staff={staff} />}
+
           {activeTab === "products" && (
             <AdminProductTable
               initialProducts={products}
@@ -170,8 +295,69 @@ export default function AdminDashboard({
             />
           )}
 
+          {activeTab === "categories" && (
+            <StoreCategoriesPanel initialCategories={storeCategories} />
+          )}
+
+          {activeTab === "collections" && (
+            <StoreCollectionsPanel
+              initialCollections={storeCollections}
+              categoryOptions={collectionCategoryOptions}
+            />
+          )}
+
+          {activeTab === "new-arrivals" && (
+            <StoreNewArrivalsPanel
+              initialItems={newArrivalItems}
+              productOptions={newArrivalOptions}
+              limit={newArrivalLimit}
+            />
+          )}
+
+          {activeTab === "offers" && (
+            <StoreOfferGroupsPanel initialGroups={offerGroups} />
+          )}
+
+          {activeTab === "services" && (
+            <StoreServicesPanel
+              key={managedServices
+                .map(
+                  (service) =>
+                    `${service.id}:${service.sortOrder}:${service.price}:${service.isActive}`
+                )
+                .join("|")}
+              initialServices={managedServices}
+              defaultVertical="GROOMING"
+            />
+          )}
+
+          {activeTab === "slots" && (
+            <StoreTimeFramesPanel
+              key={`${timeFrameBoard.vertical}:${timeFrameBoard.frames
+                .map(
+                  (frame) =>
+                    `${frame.id}:${frame.startTime}:${frame.endTime}:${frame.staffIds.join(",")}`
+                )
+                .join("|")}`}
+              initialBoard={timeFrameBoard}
+            />
+          )}
+
+          {activeTab === "roster" && (
+            <StoreRosterPanel
+              key={`${rosterBoard.dateKey}:${rosterBoard.staff
+                .map((member) => member.id)
+                .join("|")}`}
+              initialBoard={rosterBoard}
+              initialVertical="GROOMING"
+            />
+          )}
+
           {activeTab === "orders" && (
-            <AdminOrderTable initialData={initialOrders} />
+            <AdminOrderTable
+              initialData={initialOrders}
+              deliveryBoys={deliveryBoys}
+            />
           )}
 
           {activeTab === "customers" && (
@@ -183,7 +369,7 @@ export default function AdminDashboard({
           )}
 
           {activeTab === "settings" && (
-            <AdminSettings initialSettings={storeSettings} users={users} />
+            <AdminSettings initialSettings={storeSettings} />
           )}
         </main>
       </div>

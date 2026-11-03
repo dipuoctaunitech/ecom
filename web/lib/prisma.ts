@@ -32,6 +32,7 @@ const REQUIRED_DELEGATES = [
   "order",
   "sellerSettings",
   "discountCode",
+  "orderPayment",
 ] as const
 
 function isClientFresh(client: PrismaClient) {

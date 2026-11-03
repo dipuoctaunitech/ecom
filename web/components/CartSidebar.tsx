@@ -4,6 +4,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { X, ShoppingBag, Plus, Minus } from "lucide-react";
 import { useCartStore } from "@/store/useCartStore";
+import { formatINR } from "@/lib/money";
 
 export function CartSidebar() {
   const items = useCartStore((state) => state.items);
@@ -102,7 +103,7 @@ export function CartSidebar() {
                           {product.name}
                         </p>
                         <p className="mt-0.5 text-sm text-ink-muted">
-                          ${product.price.toFixed(2)}
+                          {formatINR(product.price)}
                         </p>
                       </div>
                       <button
@@ -147,7 +148,7 @@ export function CartSidebar() {
                         </button>
                       </div>
                       <p className="text-sm font-medium tabular-nums text-ink">
-                        ${(product.price * quantity).toFixed(2)}
+                        {formatINR(product.price * quantity)}
                       </p>
                     </div>
                   </div>
@@ -163,7 +164,7 @@ export function CartSidebar() {
             <div className="mb-4 flex items-center justify-between">
               <span className="text-sm text-ink-muted">Total</span>
               <span className="font-display text-xl font-medium tabular-nums text-ink">
-                ${total.toFixed(2)}
+                {formatINR(total)}
               </span>
             </div>
             <Link

@@ -1,15 +1,20 @@
-'use client'
+"use client"
 
 import { useState, useTransition } from "react"
 import { ChevronLeft, ChevronRight, FileText } from "lucide-react"
 import { OrderStatus } from "@prisma/client"
 import {
+  assignOrderDeliveryBoy,
   getAdminOrders,
+  markAdminPaymentReceived,
   updateOrderStatus,
+  type AdminDeliveryBoyRow,
   type AdminOrderListItem,
   type PaginatedOrders,
 } from "@/app/actions/admin"
 import AdminInvoiceModal from "@/components/admin/AdminInvoiceModal"
+import { EnlargeableImage } from "@/components/EnlargeableImage"
+import { formatINR } from "@/lib/money"
 
 const STATUS_OPTIONS: OrderStatus[] = [
   "PENDING",
@@ -43,8 +48,10 @@ function truncateId(id: string) {
 
 export default function AdminOrderTable({
   initialData,
+  deliveryBoys,
 }: {
   initialData: PaginatedOrders
+  deliveryBoys: AdminDeliveryBoyRow[]
 }) {
   const [data, setData] = useState(initialData)
   const [invoiceOrder, setInvoiceOrder] = useState<AdminOrderListItem | null>(
@@ -84,6 +91,72 @@ export default function AdminOrderTable({
     })
   }
 
+  const handleAssignDelivery = (
+    orderId: string,
+    deliveryBoyId: string | null
+  ) => {
+    setError("")
+    startTransition(async () => {
+      try {
+        await assignOrderDeliveryBoy(orderId, deliveryBoyId)
+        const boy = deliveryBoys.find((row) => row.id === deliveryBoyId)
+        setData((current) => ({
+          ...current,
+          orders: current.orders.map((order) =>
+            order.id === orderId
+              ? {
+                  ...order,
+                  deliveryBoyId,
+                  deliveryBoyName:
+                    boy?.name?.trim() ||
+                    boy?.email?.split("@")[0] ||
+                    null,
+                }
+              : order
+          ),
+        }))
+      } catch (err) {
+        setError(
+          err instanceof Error ? err.message : "Failed to assign delivery"
+        )
+      }
+    })
+  }
+
+  const handleMarkPayment = (orderId: string, sellerId: string) => {
+    setError("")
+    startTransition(async () => {
+      try {
+        await markAdminPaymentReceived(orderId, sellerId)
+        const receivedAt = new Date().toISOString()
+        setData((current) => ({
+          ...current,
+          orders: current.orders.map((order) =>
+            order.id === orderId
+              ? {
+                  ...order,
+                  payments: order.payments.map((payment) =>
+                    payment.sellerId === sellerId
+                      ? {
+                          ...payment,
+                          paymentReceived: true,
+                          paymentReceivedAt: receivedAt,
+                          paymentMarkedByRole: "ADMIN",
+                        }
+                      : payment
+                  ),
+                }
+              : order
+          ),
+        }))
+      } catch (err) {
+        setError(
+          err instanceof Error ? err.message : "Failed to mark payment received"
+        )
+      }
+    })
+  }
+
   return (
     <div>
       <div className="mb-8">
@@ -91,8 +164,8 @@ export default function AdminOrderTable({
           Order Fulfillment
         </h2>
         <p className="mt-2 text-sm text-ink-muted">
-          View orders, update statuses, generate invoices, and handle returns
-          and refunds.
+          Assign delivery, update statuses, mark COD payments received, and
+          open invoices. Payment updates sync to customer, seller, and delivery.
         </p>
       </div>
 
@@ -110,16 +183,16 @@ export default function AdminOrderTable({
                 Buyer
               </th>
               <th className="px-5 py-3 text-left text-xs font-medium uppercase tracking-[0.12em] text-ink-muted">
-                Order ID
-              </th>
-              <th className="px-5 py-3 text-left text-xs font-medium uppercase tracking-[0.12em] text-ink-muted">
-                Date
+                Order
               </th>
               <th className="px-5 py-3 text-left text-xs font-medium uppercase tracking-[0.12em] text-ink-muted">
                 Items
               </th>
               <th className="px-5 py-3 text-left text-xs font-medium uppercase tracking-[0.12em] text-ink-muted">
-                Total
+                Payment
+              </th>
+              <th className="px-5 py-3 text-left text-xs font-medium uppercase tracking-[0.12em] text-ink-muted">
+                Delivery
               </th>
               <th className="px-5 py-3 text-left text-xs font-medium uppercase tracking-[0.12em] text-ink-muted">
                 Status
@@ -142,7 +215,10 @@ export default function AdminOrderTable({
               </tr>
             ) : (
               data.orders.map((order) => (
-                <tr key={order.id} className="transition-colors hover:bg-surface/60">
+                <tr
+                  key={order.id}
+                  className="transition-colors hover:bg-surface/60"
+                >
                   <td className="px-5 py-4">
                     <div className="text-sm font-medium text-ink">
                       {order.buyer.name || "Unnamed buyer"}
@@ -158,9 +234,12 @@ export default function AdminOrderTable({
                     >
                       {truncateId(order.id)}
                     </span>
-                  </td>
-                  <td className="px-5 py-4 text-sm text-ink-muted">
-                    {formatDate(order.createdAt)}
+                    <div className="mt-1 text-xs text-ink-muted">
+                      {formatDate(order.createdAt)}
+                    </div>
+                    <div className="mt-1 text-sm font-medium tabular-nums text-ink">
+                      {formatINR(order.totalAmount)}
+                    </div>
                   </td>
                   <td className="px-5 py-4">
                     <ul className="space-y-1 text-sm text-ink-muted">
@@ -174,8 +253,77 @@ export default function AdminOrderTable({
                       ))}
                     </ul>
                   </td>
-                  <td className="px-5 py-4 text-sm font-medium tabular-nums text-ink">
-                    ${order.totalAmount.toFixed(2)}
+                  <td className="px-5 py-4">
+                    <div className="space-y-3">
+                      {order.payments.map((payment) => (
+                        <div
+                          key={payment.sellerId}
+                          className="min-w-[12rem] space-y-2 border border-line bg-surface p-2.5"
+                        >
+                          <div className="flex items-start justify-between gap-2">
+                            <div>
+                              <p className="text-xs font-medium text-ink">
+                                {payment.sellerName}
+                              </p>
+                              <p className="text-xs tabular-nums text-ink-muted">
+                                {formatINR(payment.sellerTotal)}
+                              </p>
+                            </div>
+                            {payment.qrCodeUrl ? (
+                              <EnlargeableImage
+                                src={payment.qrCodeUrl}
+                                alt={`${payment.sellerName} QR`}
+                                wrapClassName="h-10 w-10 shrink-0 p-0.5"
+                                className="h-full w-full object-contain"
+                              />
+                            ) : null}
+                          </div>
+                          {payment.paymentReceived ? (
+                            <span className="inline-flex items-center bg-emerald-50 px-2 py-1 text-[10px] font-medium uppercase tracking-wide text-emerald-800 ring-1 ring-emerald-200">
+                              {payment.paymentMarkedByRole
+                                ? `${payment.paymentMarkedByRole} confirmed`
+                                : "Received"}
+                            </span>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() =>
+                                handleMarkPayment(order.id, payment.sellerId)
+                              }
+                              disabled={isPending}
+                              className="border border-ink bg-ink px-2.5 py-1 text-[10px] font-medium uppercase tracking-wide text-white transition-colors hover:bg-neutral-800 disabled:opacity-50"
+                            >
+                              Mark paid
+                            </button>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </td>
+                  <td className="px-5 py-4">
+                    <select
+                      value={order.deliveryBoyId ?? ""}
+                      onChange={(event) =>
+                        handleAssignDelivery(
+                          order.id,
+                          event.target.value || null
+                        )
+                      }
+                      disabled={isPending || deliveryBoys.length === 0}
+                      className="h-9 min-w-[140px] border border-line bg-surface-elevated px-3 text-xs text-ink focus:border-ink focus:outline-none disabled:opacity-50"
+                    >
+                      <option value="">Unassigned</option>
+                      {deliveryBoys.map((boy) => (
+                        <option key={boy.id} value={boy.id}>
+                          {boy.name || boy.email}
+                        </option>
+                      ))}
+                    </select>
+                    {deliveryBoys.length === 0 && (
+                      <p className="mt-1 text-[11px] text-ink-muted">
+                        Create a delivery account first
+                      </p>
+                    )}
                   </td>
                   <td className="px-5 py-4">
                     <select
